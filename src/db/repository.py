@@ -62,6 +62,14 @@ def close_trade(trade_id: str, exit_price: float, result: str, pnl_dollars: floa
             session.commit()
 
 
+def get_pending_trades(date: str) -> list[Trade]:
+    with get_session() as session:
+        return session.query(Trade).filter(
+            Trade.date == date,
+            Trade.result == "PENDING",
+        ).all()
+
+
 def get_trades_for_date(date: str, symbol: Optional[str] = None) -> list[Trade]:
     with get_session() as session:
         query = session.query(Trade).filter(Trade.date == date)

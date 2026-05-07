@@ -11,7 +11,7 @@ from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, OrderStatus
 from src.config import ALPACA_API_KEY, ALPACA_SECRET_KEY
 from src.models import TradeSignal
 from src.core.risk import calculate_position_size
-from src.db.repository import save_trade_signal, save_skip, close_trade
+from src.db.repository import save_trade_signal, save_skip, close_trade, get_pending_trades
 from src.reporting.telegram import TelegramReporter
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,74 @@ class Investor:
         self._client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
         self._telegram = telegram
         self._open_trades: dict[str, dict] = {}  # symbol → {trade_id, order_id, signal}
+
+    def recover_open_trades(self):
+        """On startup, rebuild _open_trades from any PENDING DB records for today."""
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        pending = get_pending_trades(today)
+        if not pending:
+            return
+
+        logger.info(f"Agent 3: Crash recovery — {len(pending)} pending trade(s) found")
+        try:
+            positions = {p.symbol: p for p in self._client.get_all_positions()}
+        except Exception as e:
+            logger.error(f"Agent 3: Recovery failed — could not fetch positions: {e}")
+            self._telegram.log_error(f"❌ <b>Crash Recovery</b> failed — could not fetch positions: {e}")
+            return
+
+        for trade in pending:
+            try:
+                if trade.symbol in positions:
+                    # Position still open on Alpaca — rebuild in-memory tracking
+                    signal = self._signal_from_trade(trade)
+                    self._open_trades[trade.symbol] = {
+                        "trade_id": trade.id,
+                        "order_id": trade.alpaca_order_id,
+                        "signal": signal,
+                        "qty": trade.qty,
+                    }
+                    logger.info(f"Agent 3: {trade.symbol} recovered — monitoring resumed")
+                    self._telegram.log_info(f"🔄 <b>Crash Recovery</b> — {trade.symbol} open trade recovered, monitoring resumed")
+                else:
+                    # Position already closed while service was down — record result
+                    try:
+                        order = self._client.get_order_by_id(trade.alpaca_order_id)
+                        exit_price = float(order.filled_avg_price or trade.entry)
+                    except Exception:
+                        exit_price = trade.entry
+                    signal = self._signal_from_trade(trade)
+                    result = self._determine_result(signal, exit_price)
+                    pnl = self._calculate_pnl(signal, trade.entry, exit_price, trade.qty)
+                    pnl_pct = pnl / (trade.entry * trade.qty) if trade.entry > 0 else 0.0
+                    close_trade(trade.id, exit_price, result, pnl, round(pnl_pct, 4))
+                    logger.info(f"Agent 3: {trade.symbol} closed during downtime — {result} @ {exit_price} | P&L=${pnl:.2f}")
+                    self._telegram.log_info(
+                        f"⚠️ <b>Crash Recovery</b> — {trade.symbol} closed during downtime\n"
+                        f"{result} @ {exit_price} | P&L=${pnl:.2f}"
+                    )
+            except Exception as e:
+                logger.error(f"Agent 3: Recovery error for {trade.symbol}: {e}")
+                self._telegram.log_error(f"❌ <b>Crash Recovery</b> failed for {trade.symbol}: {e}")
+
+    def _signal_from_trade(self, trade) -> "TradeSignal":
+        """Reconstruct a TradeSignal from a DB Trade record."""
+        from src.models import TradeSignal as TS
+        return TS(
+            symbol=trade.symbol,
+            date=trade.date,
+            signal=trade.signal,
+            entry=trade.entry or 0.0,
+            stop_loss=trade.stop_loss or 0.0,
+            take_profit=trade.take_profit or 0.0,
+            risk=round(abs((trade.entry or 0) - (trade.stop_loss or 0)), 2),
+            reward=round(abs((trade.take_profit or 0) - (trade.entry or 0)), 2),
+            stop_type=trade.stop_type or "",
+            fvg_body_ratio=trade.fvg_body_ratio or 0.0,
+            volume_ratio=trade.volume_ratio or 0.0,
+            filters_passed=trade.filters_passed or [],
+            confidence="HIGH",
+        )
 
     def get_account_value(self) -> float:
         account = self._client.get_account()

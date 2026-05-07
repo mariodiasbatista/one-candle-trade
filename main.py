@@ -323,6 +323,8 @@ if __name__ == "__main__":
     logger.info("One Candle Trade V3 — starting up")
     init_db()
     logger.info("Database initialised")
+    investor.recover_open_trades()
+    logger.info("Crash recovery check complete")
 
     scheduler = build_scheduler()
     logger.info("Scheduler configured — jobs:")
