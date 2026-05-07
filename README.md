@@ -12,7 +12,7 @@ All jobs run Monday–Friday (ET) automatically via APScheduler when `python3 ma
 |-----------|-----|--------------|
 | 8:00 PM | Nightly Screener | Screens 40 symbols, updates tomorrow's watchlist |
 | 9:00 AM | Pre-market Check | News + gap filter per symbol, sends Telegram alert |
-| 9:35 AM | Mark First Candle | Fetches opening 5-min candle, applies ATR filter |
+| 9:36 AM | Mark First Candle | Fetches opening 5-min candle, applies ATR filter |
 | 9:36–10:30 AM (every 60s) | FVG Monitor | Scans 1-min candles for FVG + volume, fires orders |
 | 9:30–3:55 PM (every 5 min) | Position Monitor | Checks if open positions hit TP or SL |
 | 3:55 PM | Force Close | Closes all open positions before market close |
@@ -32,7 +32,7 @@ Two checks on pre-market data:
 - Opening gap vs prior close must be **≤ 0.8%** — gaps larger than this indicate an extended move already underway
 - Pre-market range must be **≤ 1.5%** of prior close — excessive pre-market volatility increases the chance of a false breakout
 
-### 3. ATR Filter — 9:35 AM
+### 3. ATR Filter — 9:36 AM
 The 9:30 opening 5-min candle range is compared against the 14-day ATR:
 - Range must be **≥ 30% of ATR** — too small means no volatility to trade
 - Range must be **≤ 120% of ATR** — too large means the move has already happened or risk is unmanageable
@@ -58,6 +58,8 @@ Once all conditions pass:
 
 ### Signal Window
 If no valid setup is found by **10:30 AM**, monitoring stops, a "no signal" Telegram notification is sent, and the day is recorded as a skip. No trades are taken after this cutoff.
+
+The 10:30 AM cutoff aligns with the end of the classic Opening Range hour (9:30–10:30 AM). FVG setups after this point tend to have less institutional volume and momentum behind them, making follow-through less reliable and increasing the risk of chasing late breakouts that reverse. The cutoff is configurable via `SIGNAL_CUTOFF_HOUR` and `SIGNAL_CUTOFF_MINUTE` in `.env`.
 
 ---
 
