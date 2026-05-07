@@ -55,7 +55,10 @@ def get_bars(symbol: str, timeframe: TimeFrame, start: datetime, end: datetime) 
         feed="iex",
     )
     bars = get_client().get_stock_bars(request)
-    raw = bars[symbol] if symbol in bars else []
+    try:
+        raw = bars[symbol]
+    except KeyError:
+        raw = []
     return _bars_to_candles(raw)
 
 
