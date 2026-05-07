@@ -3,13 +3,16 @@ One Candle Trade — Main Orchestrator
 Strategy V3: First 5-min candle ORB + FVG + Volume confirmation
 Paper trading via Alpaca. Guided by SAT - Idea 2 V3 document.
 """
+import asyncio
 import logging
 import time
 from datetime import datetime
 
 import pytz
-from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
 from src.db.schema import init_db
 from src.agents.data_retriever import DataRetriever
@@ -21,7 +24,7 @@ from src.reporting.summary import (
     generate_monthly_summary,
     generate_yearly_summary,
 )
-from src.config import SIGNAL_CUTOFF_HOUR, SIGNAL_CUTOFF_MINUTE, DEFAULT_WATCHLIST
+from src.config import SIGNAL_CUTOFF_HOUR, SIGNAL_CUTOFF_MINUTE, DEFAULT_WATCHLIST, TELEGRAM_BOT_TOKEN
 
 logging.basicConfig(
     level=logging.INFO,
@@ -151,8 +154,8 @@ def job_daily_summary():
 # SCHEDULER SETUP
 # ──────────────────────────────────────────────
 
-def build_scheduler() -> BlockingScheduler:
-    sched = BlockingScheduler(timezone=ET)
+def build_scheduler() -> BackgroundScheduler:
+    sched = BackgroundScheduler(timezone=ET)
 
     # Nightly screener — 8:00 PM EST Mon–Fri
     sched.add_job(job_nightly_screener, CronTrigger(day_of_week="mon-fri", hour=20, minute=0))
@@ -182,6 +185,26 @@ def build_scheduler() -> BlockingScheduler:
 # ENTRY POINT
 # ──────────────────────────────────────────────
 
+# ──────────────────────────────────────────────
+# TELEGRAM COMMAND HANDLERS
+# ──────────────────────────────────────────────
+
+async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/summary — send the daily P&L summary on demand."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, job_daily_summary)
+
+
+def build_telegram_app() -> Application:
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("summary", cmd_summary))
+    return app
+
+
+# ──────────────────────────────────────────────
+# ENTRY POINT
+# ──────────────────────────────────────────────
+
 if __name__ == "__main__":
     logger.info("One Candle Trade V3 — starting up")
     init_db()
@@ -191,8 +214,14 @@ if __name__ == "__main__":
     logger.info("Scheduler configured — jobs:")
     for job in scheduler.get_jobs():
         logger.info(f"  {job.name} → {job.trigger}")
+    scheduler.start()
 
+    tg_app = build_telegram_app()
+    logger.info("Telegram bot listening for commands")
     try:
-        scheduler.start()
+        tg_app.run_polling()
     except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        scheduler.shutdown()
         logger.info("Shutting down gracefully")
