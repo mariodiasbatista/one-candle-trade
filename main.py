@@ -13,6 +13,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.request import HTTPXRequest
 
 from src.db.schema import init_db
 from src.agents.data_retriever import DataRetriever
@@ -196,7 +197,8 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def build_telegram_app() -> Application:
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    request = HTTPXRequest(connect_timeout=30, read_timeout=30)
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
     app.add_handler(CommandHandler("summary", cmd_summary))
     return app
 
