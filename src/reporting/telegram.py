@@ -6,6 +6,15 @@ from src.models import TradeSignal
 logger = logging.getLogger(__name__)
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
+# Log levels: 0=off, 1=debug, 2=info, 3=errors only
+LOG_OFF = 0
+LOG_DEBUG = 1
+LOG_INFO = 2
+LOG_ERROR = 3
+
+LEVEL_LABELS = {LOG_OFF: "OFF", LOG_DEBUG: "DEBUG", LOG_INFO: "INFO", LOG_ERROR: "ERRORS ONLY"}
+LEVEL_PREFIXES = {LOG_DEBUG: "⬜", LOG_INFO: "🔵", LOG_ERROR: "🔴"}
+
 
 def _send(text: str):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -22,6 +31,43 @@ def _send(text: str):
 
 
 class TelegramReporter:
+
+    def __init__(self):
+        self._log_level: int = LOG_INFO  # default: info + errors
+
+    # ------------------------------------------------------------------
+    # Log level control
+    # ------------------------------------------------------------------
+
+    def set_level(self, level: int):
+        self._log_level = max(LOG_OFF, min(level, LOG_ERROR))
+
+    def get_level(self) -> int:
+        return self._log_level
+
+    def get_level_label(self) -> str:
+        return LEVEL_LABELS.get(self._log_level, str(self._log_level))
+
+    def log(self, msg: str, msg_level: int):
+        """Send msg to Telegram only if current log level covers msg_level."""
+        if self._log_level == LOG_OFF:
+            return
+        if msg_level >= self._log_level:
+            prefix = LEVEL_PREFIXES.get(msg_level, "")
+            _send(f"{prefix} {msg}" if prefix else msg)
+
+    def log_debug(self, msg: str):
+        self.log(msg, LOG_DEBUG)
+
+    def log_info(self, msg: str):
+        self.log(msg, LOG_INFO)
+
+    def log_error(self, msg: str):
+        self.log(msg, LOG_ERROR)
+
+    # ------------------------------------------------------------------
+    # Existing alert methods (always sent regardless of log level)
+    # ------------------------------------------------------------------
 
     def send_premarket_clear(self, symbol: str, gap_pct: float):
         _send(f"[Agent 1] <b>{symbol}</b> pre-market clear ✓\nGap={gap_pct:.2%} | No high-impact news | Ready to trade")

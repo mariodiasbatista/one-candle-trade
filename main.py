@@ -53,7 +53,14 @@ _monitoring_active: bool = False
 def job_nightly_screener():
     """8:00 PM EST — update tomorrow's watchlist."""
     logger.info("=== NIGHTLY SCREENER ===")
-    retriever.run_nightly_screener()
+    telegram.log_info("🌙 <b>Nightly Screener</b> started")
+    try:
+        retriever.run_nightly_screener()
+        watchlist = retriever._watchlist
+        telegram.log_info(f"✅ <b>Nightly Screener</b> complete — watchlist: {', '.join(watchlist)}")
+    except Exception as e:
+        logger.error(f"Nightly screener error: {e}")
+        telegram.log_error(f"❌ <b>Nightly Screener</b> failed: {e}")
 
 
 def job_premarket_check():
@@ -62,25 +69,48 @@ def job_premarket_check():
     logger.info("=== PRE-MARKET CHECK ===")
     _signals_fired = set()
     _monitoring_active = True
-    contexts = retriever.run_premarket_checks()
-    for symbol, ctx in contexts.items():
-        if not ctx.trade_allowed:
-            investor.record_skip(symbol, ctx.date, ctx.skip_reason)
-            telegram.send_premarket_skip(symbol, ctx.skip_reason)
-        else:
-            telegram.send_premarket_clear(symbol, ctx.premarket_gap_pct)
+    watchlist = retriever._watchlist
+    telegram.log_info(f"🌅 <b>Pre-market Check</b> started — {len(watchlist)} symbol(s): {', '.join(watchlist)}")
+    try:
+        contexts = retriever.run_premarket_checks()
+        passed = [s for s, c in contexts.items() if c.trade_allowed]
+        skipped = [s for s, c in contexts.items() if not c.trade_allowed]
+        for symbol, ctx in contexts.items():
+            if not ctx.trade_allowed:
+                investor.record_skip(symbol, ctx.date, ctx.skip_reason)
+                telegram.send_premarket_skip(symbol, ctx.skip_reason)
+            else:
+                telegram.send_premarket_clear(symbol, ctx.premarket_gap_pct)
+        telegram.log_info(
+            f"✅ <b>Pre-market Check</b> complete — "
+            f"{len(passed)} clear{': ' + ', '.join(passed) if passed else ''} | "
+            f"{len(skipped)} skipped{': ' + ', '.join(skipped) if skipped else ''}"
+        )
+    except Exception as e:
+        logger.error(f"Pre-market check error: {e}")
+        telegram.log_error(f"❌ <b>Pre-market Check</b> failed: {e}")
 
 
 def job_mark_first_candle():
     """9:36 AM EST — mark first candle levels, apply ATR filter."""
     logger.info("=== MARK FIRST CANDLE LEVELS ===")
-    retriever.mark_first_candle_levels()
-    for symbol, ctx in retriever.get_contexts().items():
-        if ctx.trade_allowed and ctx.first_candle:
-            telegram.send_candle_levels(symbol, ctx.key_high, ctx.key_low, ctx.candle_range, ctx.atr_14_daily)
-        elif not ctx.trade_allowed and ctx.skip_reason:
-            investor.record_skip(symbol, ctx.date, ctx.skip_reason)
-            telegram.send_premarket_skip(symbol, ctx.skip_reason)
+    telegram.log_info("🕯️ <b>First Candle</b> started — fetching 9:30 opening bar")
+    try:
+        retriever.mark_first_candle_levels()
+        for symbol, ctx in retriever.get_contexts().items():
+            if ctx.trade_allowed and ctx.first_candle:
+                telegram.send_candle_levels(symbol, ctx.key_high, ctx.key_low, ctx.candle_range, ctx.atr_14_daily)
+            elif not ctx.trade_allowed and ctx.skip_reason:
+                investor.record_skip(symbol, ctx.date, ctx.skip_reason)
+                telegram.send_premarket_skip(symbol, ctx.skip_reason)
+        active = [s for s, c in retriever.get_contexts().items() if c.trade_allowed]
+        if active:
+            telegram.log_info(f"✅ <b>First Candle</b> complete — {len(active)} symbol(s) ready for FVG scan")
+        else:
+            telegram.log_error("❌ <b>First Candle</b> — no symbols passed ATR filter, no trades today")
+    except Exception as e:
+        logger.error(f"First candle error: {e}")
+        telegram.log_error(f"❌ <b>First Candle</b> failed: {e}")
 
 
 def job_monitor_fvg():
@@ -102,38 +132,74 @@ def job_monitor_fvg():
                 telegram.send_no_signal_cutoff(symbol)
                 investor.record_skip(symbol, ctx.date, "No valid signal by 10:30 AM cutoff")
         logger.info("Signal window closed at 10:30 AM")
+        telegram.log_info("⏱ <b>FVG Monitor</b> — signal window closed at 10:30 AM")
         return
 
-    contexts = retriever.update_1min_candles()
-    for symbol, ctx in contexts.items():
-        if not ctx.trade_allowed or symbol in _signals_fired:
-            continue
-        signal = analyst.analyze(ctx)
-        if signal:
-            trade_id = investor.execute_signal(signal)
-            if trade_id:
-                _signals_fired.add(symbol)
+    active = [s for s, c in retriever.get_contexts().items() if c.trade_allowed and s not in _signals_fired]
+    telegram.log_debug(f"⬜ <b>FVG scan</b> {now_et.strftime('%H:%M')} — {len(active)} symbol(s) active: {', '.join(active) if active else 'none'}")
+
+    try:
+        contexts = retriever.update_1min_candles()
+        for symbol, ctx in contexts.items():
+            if not ctx.trade_allowed or symbol in _signals_fired:
+                continue
+            signal = analyst.analyze(ctx)
+            if signal:
+                trade_id = investor.execute_signal(signal)
+                if trade_id:
+                    _signals_fired.add(symbol)
+            else:
+                fvg_status = f"FVG={ctx.fvg.direction}" if ctx.fvg else "no FVG"
+                vol_status = f"vol={ctx.volume_ratio:.1f}x" if ctx.volume_ratio else ""
+                telegram.log_debug(f"⬜ <b>{symbol}</b> — {fvg_status}{' | ' + vol_status if vol_status else ''}")
+    except Exception as e:
+        logger.error(f"FVG monitor error: {e}")
+        telegram.log_error(f"❌ <b>FVG Monitor</b> error: {e}")
 
 
 def job_monitor_positions():
     """Every 5 minutes during market hours — check if open positions hit TP or SL."""
-    investor.monitor_open_positions()
+    open_count = len(investor._open_trades)
+    if open_count == 0:
+        telegram.log_debug(f"⬜ <b>Position Monitor</b> {datetime.now(ET).strftime('%H:%M')} — no open positions")
+        return
+    telegram.log_debug(f"⬜ <b>Position Monitor</b> {datetime.now(ET).strftime('%H:%M')} — checking {open_count} open position(s): {', '.join(investor._open_trades)}")
+    try:
+        investor.monitor_open_positions()
+    except Exception as e:
+        logger.error(f"Position monitor error: {e}")
+        telegram.log_error(f"❌ <b>Position Monitor</b> error: {e}")
 
 
 def job_force_close():
     """3:55 PM EST — close all open positions before market closes."""
     logger.info("=== FORCE CLOSE ALL POSITIONS ===")
-    investor.force_close_all()
+    open_count = len(investor._open_trades)
+    if open_count == 0:
+        telegram.log_info("🔒 <b>Force Close</b> — no open positions")
+        return
+    telegram.log_info(f"🔒 <b>Force Close</b> started — {open_count} open position(s): {', '.join(investor._open_trades)}")
+    try:
+        investor.force_close_all()
+        telegram.log_info("✅ <b>Force Close</b> complete")
+    except Exception as e:
+        logger.error(f"Force close error: {e}")
+        telegram.log_error(f"❌ <b>Force Close</b> failed: {e}")
 
 
 def job_daily_summary():
     """4:05 PM EST — generate and send daily P&L summary."""
     logger.info("=== DAILY SUMMARY ===")
-    today = datetime.now(ET).strftime("%Y-%m-%d")
-    account_value = investor.get_account_value()
-    report = generate_daily_summary(today, account_value)
-    logger.info(f"\n{report}")
-    telegram.send_daily_summary(report)
+    telegram.log_info("📊 <b>Daily Summary</b> generating...")
+    try:
+        today = datetime.now(ET).strftime("%Y-%m-%d")
+        account_value = investor.get_account_value()
+        report = generate_daily_summary(today, account_value)
+        logger.info(f"\n{report}")
+        telegram.send_daily_summary(report)
+    except Exception as e:
+        logger.error(f"Daily summary error: {e}")
+        telegram.log_error(f"❌ <b>Daily Summary</b> failed: {e}")
 
     # Send monthly summary on the last trading day of the month
     now = datetime.now(ET)
@@ -196,9 +262,41 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>One Candle Trade — Available Commands</b>\n\n"
         "/summary — Send today's P&L summary on demand\n"
+        "/loglevel — Show current Telegram log level\n"
+        "/setlevel &lt;0-3&gt; — Set Telegram log level\n"
+        "  0 = off | 1 = debug | 2 = info | 3 = errors only\n"
         "/help — Show this message",
         parse_mode="HTML",
     )
+
+
+async def cmd_loglevel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/loglevel — show current Telegram log level."""
+    level = telegram.get_level()
+    label = telegram.get_level_label()
+    await update.message.reply_text(
+        f"<b>Telegram log level:</b> {level} — {label}",
+        parse_mode="HTML",
+    )
+
+
+async def cmd_setlevel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/setlevel <0-3> — set Telegram log level."""
+    try:
+        level = int(context.args[0])
+        if level not in (0, 1, 2, 3):
+            raise ValueError
+        telegram.set_level(level)
+        label = telegram.get_level_label()
+        await update.message.reply_text(
+            f"✅ Telegram log level set to <b>{level} — {label}</b>",
+            parse_mode="HTML",
+        )
+    except (IndexError, ValueError):
+        await update.message.reply_text(
+            "Usage: /setlevel &lt;0-3&gt;\n0=off | 1=debug | 2=info | 3=errors only",
+            parse_mode="HTML",
+        )
 
 
 async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -212,6 +310,8 @@ def build_telegram_app() -> Application:
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("summary", cmd_summary))
+    app.add_handler(CommandHandler("loglevel", cmd_loglevel))
+    app.add_handler(CommandHandler("setlevel", cmd_setlevel))
     return app
 
 
