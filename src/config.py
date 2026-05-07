@@ -29,6 +29,6 @@ SIGNAL_CUTOFF_MINUTE = int(os.getenv("SIGNAL_CUTOFF_MINUTE", "30"))
 REWARD_RISK_RATIO = float(os.getenv("REWARD_RISK_RATIO", "2.0"))
 
 # Watchlist
-DEFAULT_WATCHLIST = [s.strip() for s in os.getenv("DEFAULT_WATCHLIST", "SPY").split(",")]
+DEFAULT_WATCHLIST = [s.strip() for s in os.getenv("DEFAULT_WATCHLIST", "SPY,QQQ,NVDA,TSLA,AAPL").split(",")]
 
 TIMEZONE = "America/New_York"
