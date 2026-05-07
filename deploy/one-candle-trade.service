@@ -1,0 +1,17 @@
+[Unit]
+Description=One Candle Trade — ORB Paper Trading Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/projects/one-candle-trade
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/projects/one-candle-trade/logs/main.log
+StandardError=append:/var/projects/one-candle-trade/logs/main.log
+
+[Install]
+WantedBy=multi-user.target
