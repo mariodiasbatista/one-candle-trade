@@ -72,7 +72,7 @@ def job_premarket_check():
 
 
 def job_mark_first_candle():
-    """9:35 AM EST — mark first candle levels, apply ATR filter."""
+    """9:36 AM EST — mark first candle levels, apply ATR filter."""
     logger.info("=== MARK FIRST CANDLE LEVELS ===")
     retriever.mark_first_candle_levels()
     for symbol, ctx in retriever.get_contexts().items():
@@ -164,8 +164,8 @@ def build_scheduler() -> BackgroundScheduler:
     # Pre-market check — 9:00 AM EST Mon–Fri
     sched.add_job(job_premarket_check, CronTrigger(day_of_week="mon-fri", hour=9, minute=0))
 
-    # Mark first candle levels — 9:35 AM EST Mon–Fri
-    sched.add_job(job_mark_first_candle, CronTrigger(day_of_week="mon-fri", hour=9, minute=35))
+    # Mark first candle levels — 9:36 AM EST Mon–Fri (bar finalizes at 9:35; give Alpaca 60s)
+    sched.add_job(job_mark_first_candle, CronTrigger(day_of_week="mon-fri", hour=9, minute=36))
 
     # FVG monitoring — every 60s from 9:36 to 10:30 AM EST Mon–Fri
     sched.add_job(job_monitor_fvg, CronTrigger(day_of_week="mon-fri", hour="9-10", minute="*/1"))
