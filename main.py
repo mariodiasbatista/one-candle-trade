@@ -136,7 +136,7 @@ def job_monitor_fvg():
         return
 
     active = [s for s, c in retriever.get_contexts().items() if c.trade_allowed and s not in _signals_fired]
-    telegram.log_debug(f"⬜ <b>FVG scan</b> {now_et.strftime('%H:%M')} — {len(active)} symbol(s) active: {', '.join(active) if active else 'none'}")
+    telegram.log_debug(f"<b>FVG scan</b> {now_et.strftime('%H:%M')} — {len(active)} symbol(s) active: {', '.join(active) if active else 'none'}")
 
     try:
         contexts = retriever.update_1min_candles()
@@ -151,7 +151,7 @@ def job_monitor_fvg():
             else:
                 fvg_status = f"FVG={ctx.fvg.direction}" if ctx.fvg else "no FVG"
                 vol_status = f"vol={ctx.volume_ratio:.1f}x" if ctx.volume_ratio else ""
-                telegram.log_debug(f"⬜ <b>{symbol}</b> — {fvg_status}{' | ' + vol_status if vol_status else ''}")
+                telegram.log_debug(f"<b>{symbol}</b> — {fvg_status}{' | ' + vol_status if vol_status else ''}")
     except Exception as e:
         logger.error(f"FVG monitor error: {e}")
         telegram.log_error(f"❌ <b>FVG Monitor</b> error: {e}")
@@ -161,9 +161,8 @@ def job_monitor_positions():
     """Every 5 minutes during market hours — check if open positions hit TP or SL."""
     open_count = len(investor._open_trades)
     if open_count == 0:
-        telegram.log_debug(f"⬜ <b>Position Monitor</b> {datetime.now(ET).strftime('%H:%M')} — no open positions")
         return
-    telegram.log_debug(f"⬜ <b>Position Monitor</b> {datetime.now(ET).strftime('%H:%M')} — checking {open_count} open position(s): {', '.join(investor._open_trades)}")
+    telegram.log_debug(f"<b>Position Monitor</b> {datetime.now(ET).strftime('%H:%M')} — checking {open_count} position(s): {', '.join(investor._open_trades)}")
     try:
         investor.monitor_open_positions()
     except Exception as e:
