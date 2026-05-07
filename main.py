@@ -168,7 +168,8 @@ def build_scheduler() -> BackgroundScheduler:
     sched.add_job(job_mark_first_candle, CronTrigger(day_of_week="mon-fri", hour=9, minute=36))
 
     # FVG monitoring — every 60s from 9:36 to 10:30 AM EST Mon–Fri
-    sched.add_job(job_monitor_fvg, CronTrigger(day_of_week="mon-fri", hour="9-10", minute="*/1"))
+    sched.add_job(job_monitor_fvg, CronTrigger(day_of_week="mon-fri", hour=9, minute="36-59"))
+    sched.add_job(job_monitor_fvg, CronTrigger(day_of_week="mon-fri", hour=10, minute="0-30"))
 
     # Position monitoring — every 5 minutes from 9:30 AM to 3:55 PM EST Mon–Fri
     sched.add_job(job_monitor_positions, CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/5"))
