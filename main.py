@@ -190,6 +190,16 @@ def build_scheduler() -> BackgroundScheduler:
 # TELEGRAM COMMAND HANDLERS
 # ──────────────────────────────────────────────
 
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/help — list available commands."""
+    await update.message.reply_text(
+        "<b>One Candle Trade — Available Commands</b>\n\n"
+        "/summary — Send today's P&L summary on demand\n"
+        "/help — Show this message",
+        parse_mode="HTML",
+    )
+
+
 async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/summary — send the daily P&L summary on demand."""
     loop = asyncio.get_event_loop()
@@ -199,6 +209,7 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def build_telegram_app() -> Application:
     request = HTTPXRequest(connect_timeout=30, read_timeout=30)
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
+    app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("summary", cmd_summary))
     return app
 
