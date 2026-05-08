@@ -70,3 +70,47 @@ class TestGetBars:
     def test_returns_empty_when_no_bars(self):
         candles = self._call(_barset("SPY", []))
         assert candles == []
+
+
+class TestGetFirst5MinCandle:
+    """Tests for the retry logic added to get_first_5min_candle."""
+
+    def _barset_with(self, bars):
+        return _barset("SPY", bars)
+
+    def _call(self, side_effects, retries=4, retry_delay=0):
+        from src.data.alpaca_data import get_first_5min_candle
+        with patch("src.data.alpaca_data.get_client") as mock_client, \
+             patch("src.data.alpaca_data.time.sleep") as mock_sleep:
+            mock_client.return_value.get_stock_bars.side_effect = side_effects
+            result = get_first_5min_candle("SPY", "2026-05-06", retries=retries, retry_delay=retry_delay)
+            return result, mock_sleep
+
+    def test_returns_candle_on_first_attempt(self):
+        bar = _make_bar()
+        result, mock_sleep = self._call([self._barset_with([bar])])
+        assert result is not None
+        assert result.open == 100.0
+        mock_sleep.assert_not_called()
+
+    def test_returns_candle_on_second_attempt(self):
+        bar = _make_bar()
+        result, mock_sleep = self._call([
+            self._barset_with([]),   # first attempt: empty
+            self._barset_with([bar]), # second attempt: data available
+        ], retries=4, retry_delay=30)
+        assert result is not None
+        assert result.open == 100.0
+        mock_sleep.assert_called_once_with(30)
+
+    def test_returns_none_after_all_retries_exhausted(self):
+        empty = self._barset_with([])
+        result, mock_sleep = self._call([empty] * 3, retries=3, retry_delay=30)
+        assert result is None
+        assert mock_sleep.call_count == 2  # sleeps between attempts, not after last
+
+    def test_no_sleep_after_final_failed_attempt(self):
+        empty = self._barset_with([])
+        result, mock_sleep = self._call([empty] * 2, retries=2, retry_delay=30)
+        assert result is None
+        mock_sleep.assert_called_once_with(30)  # only 1 sleep for 2 retries

@@ -139,12 +139,26 @@ class TestUpdate1MinCandles:
             retriever.update_1min_candles()
         assert ctx.candles_1min == candles
 
-    def test_exception_in_update_continues(self):
+    def test_skips_fvg_scan_when_first_candle_is_none(self):
         retriever = _make_retriever()
         from src.models import MarketContext
         ctx = MarketContext(
             symbol="SPY", date="2026-05-07", trade_allowed=True, skip_reason=None,
             premarket_gap_pct=0.0, atr_14_daily=5.0, first_candle=None,
+            key_high=0.0, key_low=0.0, candle_range=0.0, candle_range_valid=False,
+        )
+        retriever._contexts = {"SPY": ctx}
+        with patch("src.agents.data_retriever.get_1min_candles") as mock_get:
+            retriever.update_1min_candles()
+        mock_get.assert_not_called()
+
+    def test_exception_in_update_continues_when_first_candle_set(self):
+        retriever = _make_retriever()
+        first_candle = make_candle(99, 100.5, 98.5, 100)
+        from src.models import MarketContext
+        ctx = MarketContext(
+            symbol="SPY", date="2026-05-07", trade_allowed=True, skip_reason=None,
+            premarket_gap_pct=0.0, atr_14_daily=5.0, first_candle=first_candle,
             key_high=100.5, key_low=98.5, candle_range=2.0, candle_range_valid=True,
         )
         retriever._contexts = {"SPY": ctx}
