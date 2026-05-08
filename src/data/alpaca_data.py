@@ -1,4 +1,5 @@
 import logging
+import time
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional
@@ -62,12 +63,19 @@ def get_bars(symbol: str, timeframe: TimeFrame, start: datetime, end: datetime) 
     return _bars_to_candles(raw)
 
 
-def get_first_5min_candle(symbol: str, date: str) -> Optional[Candle]:
+def get_first_5min_candle(symbol: str, date: str, retries: int = 4, retry_delay: int = 30) -> Optional[Candle]:
     d = datetime.strptime(date, "%Y-%m-%d")
     start = ET.localize(d.replace(hour=9, minute=30))
     end = ET.localize(d.replace(hour=9, minute=36))
-    candles = get_bars(symbol, TimeFrame(5, TimeFrameUnit.Minute), start, end)
-    return candles[0] if candles else None
+    for attempt in range(1, retries + 1):
+        candles = get_bars(symbol, TimeFrame(5, TimeFrameUnit.Minute), start, end)
+        if candles:
+            return candles[0]
+        if attempt < retries:
+            logger.warning(f"get_first_5min_candle: {symbol} attempt {attempt}/{retries} returned no data, retrying in {retry_delay}s")
+            time.sleep(retry_delay)
+    logger.warning(f"get_first_5min_candle: {symbol} no data after {retries} attempts")
+    return None
 
 
 def get_1min_candles(symbol: str, date: str, from_time: str = "09:35", to_time: str = "10:31") -> list[Candle]:

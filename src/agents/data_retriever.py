@@ -130,7 +130,7 @@ class DataRetriever:
     def update_1min_candles(self) -> dict[str, MarketContext]:
         today = datetime.now(ET).strftime("%Y-%m-%d")
         for symbol, ctx in self._contexts.items():
-            if not ctx.trade_allowed:
+            if not ctx.trade_allowed or ctx.first_candle is None:
                 continue
             try:
                 candles = get_1min_candles(symbol, today)
