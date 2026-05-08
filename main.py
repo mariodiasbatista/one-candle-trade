@@ -125,7 +125,7 @@ def job_monitor_fvg():
     now_et = datetime.now(ET)
     cutoff = now_et.replace(hour=SIGNAL_CUTOFF_HOUR, minute=SIGNAL_CUTOFF_MINUTE, second=0, microsecond=0)
 
-    if now_et >= cutoff:
+    if now_et > cutoff:
         _monitoring_active = False
         for symbol, ctx in retriever.get_contexts().items():
             if ctx.trade_allowed and symbol not in _signals_fired:
@@ -202,8 +202,9 @@ def job_daily_summary():
 
     # Send monthly summary on the last trading day of the month
     now = datetime.now(ET)
-    tomorrow = now.replace(day=now.day + 1) if now.day < 28 else None
-    if tomorrow is None or tomorrow.month != now.month:
+    from datetime import timedelta
+    tomorrow = now + timedelta(days=1)
+    if tomorrow.month != now.month:
         monthly = generate_monthly_summary(now.year, now.month, account_value)
         logger.info(f"\n{monthly}")
         telegram.send_monthly_summary(monthly)

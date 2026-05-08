@@ -96,7 +96,7 @@ def get_daily_candles(symbol: str, lookback_days: int = 20) -> list[Candle]:
 
 def calculate_atr14(symbol: str) -> float:
     candles = get_daily_candles(symbol, lookback_days=20)
-    if len(candles) < 14:
+    if len(candles) < 15:
         return 0.0
     highs = [c.high for c in candles]
     lows = [c.low for c in candles]

@@ -149,8 +149,8 @@ class Investor:
                 status = order.status
 
                 if status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED):
-                    exit_price = float(order.filled_avg_price or 0)
                     signal = info["signal"]
+                    exit_price = float(order.filled_avg_price or signal.entry)
                     result = self._determine_result(signal, exit_price)
                     pnl_dollars = self._calculate_pnl(signal, signal.entry, exit_price, info["qty"])
                     pnl_pct = pnl_dollars / (signal.entry * info["qty"]) if signal.entry > 0 else 0.0
@@ -180,6 +180,8 @@ class Investor:
                 positions = {p.symbol: p for p in self._client.get_all_positions()}
                 if symbol in positions:
                     pos = positions[symbol]
+                    if not pos.current_price:
+                        logger.warning(f"Agent 3: {symbol} current_price unavailable, falling back to avg_entry_price for P&L estimate")
                     exit_price = float(pos.current_price or pos.avg_entry_price)
                     qty = abs(int(pos.qty))
                     signal = info["signal"]

@@ -160,6 +160,42 @@ class TestMonitorOpenPositions:
         investor.monitor_open_positions()  # should not raise
         assert "SPY" in investor._open_trades  # not removed on exception
 
+    def test_filled_avg_price_none_falls_back_to_entry(self):
+        investor, client, _ = _make_investor()
+        signal = _make_signal()  # entry=500.0
+        investor._open_trades["SPY"] = {"trade_id": "t5", "order_id": "o5", "signal": signal, "qty": 10}
+
+        mock_order = MagicMock()
+        mock_order.status = OrderStatus.FILLED
+        mock_order.filled_avg_price = None
+        client.get_order_by_id.return_value = mock_order
+
+        with patch("src.agents.investor.close_trade") as mock_close:
+            investor.monitor_open_positions()
+
+        args = mock_close.call_args[0]
+        assert args[1] == 500.0  # exit_price == signal.entry, not 0
+
+
+class TestForceCloseAll:
+    def test_current_price_none_falls_back_to_avg_entry_price(self):
+        investor, client, _ = _make_investor()
+        signal = _make_signal()  # entry=500.0
+        investor._open_trades["SPY"] = {"trade_id": "t6", "order_id": "o6", "signal": signal, "qty": 10}
+
+        mock_pos = MagicMock()
+        mock_pos.symbol = "SPY"
+        mock_pos.current_price = None
+        mock_pos.avg_entry_price = "500.0"
+        mock_pos.qty = "10"
+        client.get_all_positions.return_value = [mock_pos]
+
+        with patch("src.agents.investor.close_trade") as mock_close:
+            investor.force_close_all()
+
+        args = mock_close.call_args[0]
+        assert args[1] == 500.0  # fell back to avg_entry_price, not crashed
+
 
 class TestDetermineResult:
     def test_long_at_take_profit_is_win(self):

@@ -114,3 +114,31 @@ class TestGetFirst5MinCandle:
         result, mock_sleep = self._call([empty] * 2, retries=2, retry_delay=30)
         assert result is None
         mock_sleep.assert_called_once_with(30)  # only 1 sleep for 2 retries
+
+
+class TestCalculateAtr14:
+    def _make_daily_candles(self, n, price=100.0, delta=1.0):
+        """n daily candles with predictable high/low/close for TR calculation."""
+        from tests.conftest import make_candle
+        return [make_candle(price, price + delta, price - delta, price, minute_offset=i) for i in range(n)]
+
+    def test_returns_zero_when_fewer_than_15_candles(self):
+        from src.data.alpaca_data import calculate_atr14
+        candles = self._make_daily_candles(14)
+        with patch("src.data.alpaca_data.get_daily_candles", return_value=candles):
+            result = calculate_atr14("SPY")
+        assert result == 0.0
+
+    def test_computes_atr_with_exactly_15_candles(self):
+        from src.data.alpaca_data import calculate_atr14
+        candles = self._make_daily_candles(15, delta=2.0)
+        with patch("src.data.alpaca_data.get_daily_candles", return_value=candles):
+            result = calculate_atr14("SPY")
+        assert result > 0.0  # 14 true ranges computed correctly
+
+    def test_returns_zero_when_fewer_than_14_candles(self):
+        from src.data.alpaca_data import calculate_atr14
+        candles = self._make_daily_candles(10)
+        with patch("src.data.alpaca_data.get_daily_candles", return_value=candles):
+            result = calculate_atr14("SPY")
+        assert result == 0.0
