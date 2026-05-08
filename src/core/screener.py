@@ -8,6 +8,7 @@ from src.data.alpaca_data import (
 )
 from src.core.filters import atr_filter
 from src.core.fvg import detect_fvg, check_volume_confirmation
+from src.config import SCREENER_MIN_IEX_VOLUME
 
 logger = logging.getLogger(__name__)
 ET = pytz.timezone("America/New_York")
@@ -27,7 +28,7 @@ def passes_hard_filters(symbol: str, date: str) -> tuple[bool, dict]:
     """Returns (passes, metadata_dict) for hard screening criteria."""
     try:
         avg_volume = get_avg_volume_30d(symbol)
-        if avg_volume < 5_000_000:
+        if avg_volume < SCREENER_MIN_IEX_VOLUME:
             return False, {}
 
         price = get_daily_candles(symbol, lookback_days=1)
@@ -75,7 +76,7 @@ def get_fvg_quality_score(symbol: str, lookback_days: int = 30) -> float:
     for candle_day in trading_days[-lookback_days:]:
         day_str = candle_day.timestamp.strftime("%Y-%m-%d")
         try:
-            first_candle = get_first_5min_candle(symbol, day_str)
+            first_candle = get_first_5min_candle(symbol, day_str, retries=1)
             if not first_candle:
                 continue
             atr = calculate_atr14(symbol)

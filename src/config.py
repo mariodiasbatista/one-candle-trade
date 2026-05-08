@@ -31,4 +31,7 @@ REWARD_RISK_RATIO = float(os.getenv("REWARD_RISK_RATIO", "2.0"))
 # Watchlist
 DEFAULT_WATCHLIST = [s.strip() for s in os.getenv("DEFAULT_WATCHLIST", "SPY,QQQ,NVDA,TSLA,AAPL").split(",")]
 
+# Screener — volume threshold is IEX-feed adjusted (~2-5% of consolidated tape)
+SCREENER_MIN_IEX_VOLUME = int(os.getenv("SCREENER_MIN_IEX_VOLUME", "200000"))
+
 TIMEZONE = "America/New_York"
