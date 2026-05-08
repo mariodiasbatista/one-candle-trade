@@ -9,7 +9,7 @@ from src.db.schema import Trade
 
 def _build_trade_stats(trades: list[Trade]) -> dict:
     actual = [t for t in trades if t.result in ("WIN", "LOSS", "FORCED_CLOSE")]
-    skipped = [t for t in trades if t.result == "SKIP"]
+    skipped = [t for t in trades if t.result in ("SKIP", "CANCELLED")]
     wins = [t for t in actual if t.result == "WIN"]
     losses = [t for t in actual if t.result in ("LOSS", "FORCED_CLOSE")]
     net_pnl = sum(t.pnl_dollars or 0 for t in actual)
@@ -46,6 +46,9 @@ def generate_daily_summary(date: str, account_value: float) -> str:
         for t in trades:
             if t.result == "SKIP":
                 lines.append(f"{symbol:<8} {'SKIP':<7} {'—':>7} {'—':>7} {'—':>8} {'—':>7} {t.skip_reason or 'skip':<12}")
+                total_skipped += 1
+            elif t.result == "CANCELLED":
+                lines.append(f"{symbol:<8} {(t.signal or '—'):<7} {'—':>7} {'—':>7} {'—':>8} {'—':>7} {'CANCELLED':<12}")
                 total_skipped += 1
             else:
                 sign = "+" if (t.pnl_dollars or 0) >= 0 else ""

@@ -72,6 +72,23 @@ class TestGenerateDailySummary:
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
         assert "Losses: 1" in result
 
+    def test_cancelled_trade_counts_as_skipped(self, clean_db):
+        tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o4")
+        close_trade(tid, exit_price=0.0, result="CANCELLED", pnl_dollars=0.0, pnl_percent=0.0)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0)
+        assert "Skipped: 1" in result
+        assert "Total trades: 0" in result
+
+    def test_cancelled_trade_shown_with_dashes_not_zero_pnl(self, clean_db):
+        tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o5")
+        close_trade(tid, exit_price=0.0, result="CANCELLED", pnl_dollars=0.0, pnl_percent=0.0)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0)
+        assert "CANCELLED" in result
+        # trade row must use dashes, not formatted P&L values
+        trade_row = [l for l in result.splitlines() if "CANCELLED" in l][0]
+        assert "—" in trade_row
+        assert "$0.00" not in trade_row
+
 
 class TestGenerateMonthlySummary:
     def test_empty_month(self, clean_db):
