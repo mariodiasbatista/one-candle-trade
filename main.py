@@ -55,9 +55,14 @@ def job_nightly_screener():
     logger.info("=== NIGHTLY SCREENER ===")
     telegram.log_info("🌙 <b>Nightly Screener</b> started")
     try:
-        retriever.run_nightly_screener()
+        source = retriever.run_nightly_screener()
         watchlist = retriever._watchlist
-        telegram.log_info(f"✅ <b>Nightly Screener</b> complete — watchlist: {', '.join(watchlist)}")
+        if source == "screener":
+            telegram.log_info(f"✅ <b>Nightly Screener</b> complete — watchlist: {', '.join(watchlist)}")
+            telegram.log_debug(f"📊 Source: live screener ({len(watchlist)} symbol(s) passed hard filters + FVG score)")
+        else:
+            telegram.log_info(f"✅ <b>Nightly Screener</b> complete — watchlist: {', '.join(watchlist)}")
+            telegram.log_debug("⚠️ Source: fallback defaults (screener returned no candidates)")
     except Exception as e:
         logger.error(f"Nightly screener error: {e}")
         telegram.log_error(f"❌ <b>Nightly Screener</b> failed: {e}")

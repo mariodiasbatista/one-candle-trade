@@ -27,17 +27,20 @@ class DataRetriever:
     # ------------------------------------------------------------------
     # Nightly screener — runs at 8 PM EST
     # ------------------------------------------------------------------
-    def run_nightly_screener(self):
+    def run_nightly_screener(self) -> str:
+        """Returns 'screener' or 'fallback' to indicate data source."""
         today = datetime.now(ET).strftime("%Y-%m-%d")
         logger.info("Agent 1: Running nightly screener")
         top = run_nightly_screener(today)
         if top:
             update_watchlist(top)
             self._watchlist = [t["symbol"] for t in top]
+            logger.info(f"Agent 1: Watchlist updated (screener) → {self._watchlist}")
+            return "screener"
         else:
-            # Fallback to defaults if screener returns empty
             self._watchlist = list(DEFAULT_WATCHLIST)
-        logger.info(f"Agent 1: Watchlist updated → {self._watchlist}")
+            logger.info(f"Agent 1: Watchlist updated (fallback) → {self._watchlist}")
+            return "fallback"
 
     # ------------------------------------------------------------------
     # Pre-market check — runs at 9:00 AM EST
