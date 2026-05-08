@@ -113,3 +113,7 @@ class TestCalculatePositionSize:
         size_small = calculate_position_size(account_value=10_000, entry=100.0, stop_loss=99.0)
         size_large = calculate_position_size(account_value=100_000, entry=100.0, stop_loss=99.0)
         assert size_large > size_small
+
+    def test_zero_entry_returns_zero(self):
+        size = calculate_position_size(account_value=100_000, entry=0.0, stop_loss=0.0)
+        assert size == 0

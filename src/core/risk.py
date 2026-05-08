@@ -40,6 +40,8 @@ def calculate_position_size(account_value: float, entry: float, stop_loss: float
     Risk 1% of account. Cap at 5% of account in position value.
     Returns number of whole shares (minimum 1).
     """
+    if entry <= 0:
+        return 0
     risk_dollars = account_value * RISK_PER_TRADE_PCT
     risk_per_share = abs(entry - stop_loss)
     if risk_per_share <= 0:
