@@ -266,6 +266,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/help — list available commands."""
     await update.message.reply_text(
         "<b>One Candle Trade — Available Commands</b>\n\n"
+        "/schedule — Today's job schedule with ✅/⬜ status\n"
         "/summary — Send today's P&L summary on demand\n"
         "/loglevel — Show current Telegram log level\n"
         "/setlevel &lt;0-3&gt; — Set Telegram log level\n"
@@ -310,10 +311,57 @@ async def cmd_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await loop.run_in_executor(None, job_daily_summary)
 
 
+async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/schedule — show today's job schedule with completion status."""
+    now = datetime.now(ET)
+
+    if now.weekday() >= 5:
+        await update.message.reply_text(
+            f"<b>📅 One Candle Trade — Schedule</b>\n\n"
+            f"{now.strftime('%A %Y-%m-%d')} — no jobs run on weekends.\n\n"
+            f"Next session starts Sunday at 8:00 PM (Nightly Screener).",
+            parse_mode="HTML",
+        )
+        return
+
+    def tick(hour, minute):
+        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if now >= due:
+            return "✅"
+        return "⬜"
+
+    def fvg_tick():
+        start = now.replace(hour=9, minute=36, second=0, microsecond=0)
+        end = now.replace(hour=10, minute=30, second=0, microsecond=0)
+        if now > end:
+            return "✅"
+        if now >= start:
+            return "🔄"
+        return "⬜"
+
+    watchlist = ", ".join(retriever._watchlist) if retriever._watchlist else "—"
+
+    lines = [
+        f"<b>📅 One Candle Trade — {now.strftime('%A %Y-%m-%d')}</b>",
+        "",
+        f"{tick(20,  0)}  8:00 PM   Nightly Screener",
+        f"{tick( 9,  0)}  9:00 AM   Pre-market Check",
+        f"{tick( 9, 40)}  9:40 AM   Mark First Candle",
+        f"{fvg_tick()}  9:36–10:30 AM  FVG Monitor",
+        f"{tick(15, 55)}  3:55 PM   Force Close",
+        f"{tick(16,  5)}  4:05 PM   Daily Summary",
+        "",
+        f"📋 Watchlist: {watchlist}",
+        f"🕐 Now: {now.strftime('%I:%M %p ET')}",
+    ]
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 def build_telegram_app() -> Application:
     request = HTTPXRequest(connect_timeout=30, read_timeout=30)
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("schedule", cmd_schedule))
     app.add_handler(CommandHandler("summary", cmd_summary))
     app.add_handler(CommandHandler("loglevel", cmd_loglevel))
     app.add_handler(CommandHandler("setlevel", cmd_setlevel))
