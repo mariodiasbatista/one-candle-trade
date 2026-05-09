@@ -19,12 +19,27 @@ class TestRunNightlyScreener:
         mock_update.assert_called_once_with(top)
         assert retriever._watchlist == ["AAPL"]
 
+    def test_screener_returns_screener_source(self):
+        retriever = _make_retriever()
+        top = [{"symbol": "AAPL", "fvg_score": 0.8, "avg_volume": 1e8, "atr_pct": 0.02, "beta": 1.0}]
+        with patch("src.agents.data_retriever.run_nightly_screener", return_value=top), \
+             patch("src.agents.data_retriever.update_watchlist"):
+            source = retriever.run_nightly_screener()
+        assert source == "screener"
+
     def test_fallback_to_default_when_screener_empty(self):
         retriever = _make_retriever()
         with patch("src.agents.data_retriever.run_nightly_screener", return_value=[]), \
              patch("src.agents.data_retriever.update_watchlist"):
             retriever.run_nightly_screener()
         assert "SPY" in retriever._watchlist
+
+    def test_fallback_returns_fallback_source(self):
+        retriever = _make_retriever()
+        with patch("src.agents.data_retriever.run_nightly_screener", return_value=[]), \
+             patch("src.agents.data_retriever.update_watchlist"):
+            source = retriever.run_nightly_screener()
+        assert source == "fallback"
 
 
 class TestRunPremarketChecks:
