@@ -266,7 +266,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/help — list available commands."""
     await update.message.reply_text(
         "<b>One Candle Trade — Available Commands</b>\n\n"
-        "/schedule — Today's job schedule with ✅/⬜ status\n"
+        "/schedule — Today's jobs schedule\n"
         "/summary — Send today's P&L summary on demand\n"
         "/loglevel — Show current Telegram log level\n"
         "/setlevel &lt;0-3&gt; — Set Telegram log level\n"
