@@ -229,27 +229,30 @@ def job_daily_summary():
 def build_scheduler() -> BackgroundScheduler:
     sched = BackgroundScheduler(timezone=ET)
 
-    # Nightly screener — 8:00 PM EST Mon–Fri
-    sched.add_job(job_nightly_screener, CronTrigger(day_of_week="mon-fri", hour=20, minute=0))
+    def cron(**kwargs):
+        return CronTrigger(day_of_week="mon-fri", timezone=ET, **kwargs)
 
-    # Pre-market check — 9:00 AM EST Mon–Fri
-    sched.add_job(job_premarket_check, CronTrigger(day_of_week="mon-fri", hour=9, minute=0))
+    # Nightly screener — 8:00 PM ET Mon–Fri
+    sched.add_job(job_nightly_screener, cron(hour=20, minute=0))
 
-    # Mark first candle levels — 9:40 AM EST Mon–Fri (bar finalizes at 9:35; extra time for IEX propagation + retries)
-    sched.add_job(job_mark_first_candle, CronTrigger(day_of_week="mon-fri", hour=9, minute=40))
+    # Pre-market check — 9:00 AM ET Mon–Fri
+    sched.add_job(job_premarket_check, cron(hour=9, minute=0))
 
-    # FVG monitoring — every 60s from 9:36 to 10:30 AM EST Mon–Fri
-    sched.add_job(job_monitor_fvg, CronTrigger(day_of_week="mon-fri", hour=9, minute="36-59"))
-    sched.add_job(job_monitor_fvg, CronTrigger(day_of_week="mon-fri", hour=10, minute="0-30"))
+    # Mark first candle levels — 9:40 AM ET Mon–Fri (bar finalizes at 9:35; extra time for IEX propagation + retries)
+    sched.add_job(job_mark_first_candle, cron(hour=9, minute=40))
 
-    # Position monitoring — every 5 minutes from 9:30 AM to 3:55 PM EST Mon–Fri
-    sched.add_job(job_monitor_positions, CronTrigger(day_of_week="mon-fri", hour="9-15", minute="*/5"))
+    # FVG monitoring — every 60s from 9:36 to 10:30 AM ET Mon–Fri
+    sched.add_job(job_monitor_fvg, cron(hour=9, minute="36-59"))
+    sched.add_job(job_monitor_fvg, cron(hour=10, minute="0-30"))
 
-    # Force close — 3:55 PM EST Mon–Fri
-    sched.add_job(job_force_close, CronTrigger(day_of_week="mon-fri", hour=15, minute=55))
+    # Position monitoring — every 5 minutes from 9:30 AM to 3:55 PM ET Mon–Fri
+    sched.add_job(job_monitor_positions, cron(hour="9-15", minute="*/5"))
 
-    # Daily summary — 4:05 PM EST Mon–Fri
-    sched.add_job(job_daily_summary, CronTrigger(day_of_week="mon-fri", hour=16, minute=5))
+    # Force close — 3:55 PM ET Mon–Fri
+    sched.add_job(job_force_close, cron(hour=15, minute=55))
+
+    # Daily summary — 4:05 PM ET Mon–Fri
+    sched.add_job(job_daily_summary, cron(hour=16, minute=5))
 
     return sched
 
@@ -344,12 +347,12 @@ async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
         f"<b>📅 One Candle Trade — {now.strftime('%A %Y-%m-%d')}</b>",
         "",
-        f"{tick(20,  0)}  8:00 PM   Nightly Screener",
-        f"{tick( 9,  0)}  9:00 AM   Pre-market Check",
-        f"{tick( 9, 40)}  9:40 AM   Mark First Candle",
+        f"{tick( 9,  0)}  9:00 AM        Pre-market Check",
         f"{fvg_tick()}  9:36–10:30 AM  FVG Monitor",
-        f"{tick(15, 55)}  3:55 PM   Force Close",
-        f"{tick(16,  5)}  4:05 PM   Daily Summary",
+        f"{tick( 9, 40)}  9:40 AM        Mark First Candle",
+        f"{tick(15, 55)}  3:55 PM        Force Close",
+        f"{tick(16,  5)}  4:05 PM        Daily Summary",
+        f"{tick(20,  0)}  8:00 PM        Nightly Screener",
         "",
         f"📋 Watchlist: {watchlist}",
         f"🕐 Now: {now.strftime('%I:%M %p ET')}",
