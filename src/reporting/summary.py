@@ -81,7 +81,7 @@ def generate_daily_summary(date: str, account_value: float) -> str:
     lines.append(f"Stocks: {total_stocks}  |  Traded: {total_traded}  |  Skipped: {total_skipped}")
     if total_traded > 0:
         lines.append(f"✅ {total_wins} wins  ❌ {total_losses} losses  |  Win rate: {win_rate:.0%}")
-    lines.append(f"Net P&L: {sign}${total_pnl:.2f}")
+    lines.append(f"Net P&L: {sign}${total_pnl:.2f}  (after fees & slippage)")
     lines.append(f"Account: ${account_value:,.2f}")
     return "\n".join(lines)
 
