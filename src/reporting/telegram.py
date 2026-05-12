@@ -1,3 +1,4 @@
+import html
 import logging
 import requests
 from src.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
@@ -104,13 +105,13 @@ class TelegramReporter:
         )
 
     def send_daily_summary(self, report: str):
-        _send(f"📊 [Agent 3] <b>Daily Summary</b>\n\n{report}")
+        _send(f"📊 [Agent 3] <b>Daily Summary</b>\n\n{html.escape(report)}")
 
     def send_monthly_summary(self, report: str):
-        _send(f"📅 [Agent 3] <b>Monthly Summary</b>\n\n{report}")
+        _send(f"📅 [Agent 3] <b>Monthly Summary</b>\n\n{html.escape(report)}")
 
     def send_yearly_summary(self, report: str):
-        _send(f"🏆 [Agent 3] <b>Yearly Summary</b>\n\n{report}")
+        _send(f"🏆 [Agent 3] <b>Yearly Summary</b>\n\n{html.escape(report)}")
 
     def send_no_signal_cutoff(self, symbol: str):
         _send(f"[Agent 1] <b>{symbol}</b> — 10:30 AM cutoff reached. No trade today.")

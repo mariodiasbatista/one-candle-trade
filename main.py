@@ -101,11 +101,12 @@ def job_mark_first_candle():
     logger.info("=== MARK FIRST CANDLE LEVELS ===")
     telegram.log_info("🕯️ <b>First Candle</b> started — fetching 9:30 opening bar")
     try:
+        pre_allowed = {s for s, c in retriever.get_contexts().items() if c.trade_allowed}
         retriever.mark_first_candle_levels()
         for symbol, ctx in retriever.get_contexts().items():
             if ctx.trade_allowed and ctx.first_candle:
                 telegram.send_candle_levels(symbol, ctx.key_high, ctx.key_low, ctx.candle_range, ctx.atr_14_daily)
-            elif not ctx.trade_allowed and ctx.skip_reason:
+            elif not ctx.trade_allowed and ctx.skip_reason and symbol in pre_allowed:
                 investor.record_skip(symbol, ctx.date, ctx.skip_reason)
                 telegram.send_premarket_skip(symbol, ctx.skip_reason)
         active = [s for s, c in retriever.get_contexts().items() if c.trade_allowed]

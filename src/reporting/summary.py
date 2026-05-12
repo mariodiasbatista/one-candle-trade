@@ -25,38 +25,40 @@ def _build_trade_stats(trades: list[Trade]) -> dict:
     }
 
 
-def generate_daily_summary(date: str, account_value: float) -> str:
-    all_symbols = set()
-    all_trades = get_trades_for_date(date)
-    for t in all_trades:
-        all_symbols.add(t.symbol)
+_RESULT_ICON = {
+    "WIN": "✅",
+    "LOSS": "❌",
+    "FORCED_CLOSE": "⚠️",
+    "SKIP": "⏭",
+    "CANCELLED": "🚫",
+}
 
-    lines = [f"ONE CANDLE TRADE — Daily Summary {date}", "=" * 50]
-    header = f"{'Symbol':<8} {'Signal':<7} {'Entry':>7} {'Exit':>7} {'P&L$':>8} {'P&L%':>7} {'Result':<12}"
-    lines.append(header)
-    lines.append("-" * 50)
+
+def generate_daily_summary(date: str, account_value: float) -> str:
+    all_trades = get_trades_for_date(date)
+    all_symbols = sorted(set(t.symbol for t in all_trades))
+
+    lines = [f"ONE CANDLE TRADE — {date}", "=" * 44]
 
     total_pnl = 0.0
     total_wins = 0
     total_losses = 0
     total_skipped = 0
 
-    for symbol in sorted(all_symbols):
+    for symbol in all_symbols:
         trades = [t for t in all_trades if t.symbol == symbol]
         for t in trades:
-            if t.result == "SKIP":
-                lines.append(f"{symbol:<8} {'SKIP':<7} {'—':>7} {'—':>7} {'—':>8} {'—':>7} {t.skip_reason or 'skip':<12}")
-                total_skipped += 1
-            elif t.result == "CANCELLED":
-                lines.append(f"{symbol:<8} {(t.signal or '—'):<7} {'—':>7} {'—':>7} {'—':>8} {'—':>7} {'CANCELLED':<12}")
+            icon = _RESULT_ICON.get(t.result or "SKIP", "•")
+            if t.result in ("SKIP", "CANCELLED"):
+                reason = (t.skip_reason or "").split("(")[0].strip()
+                lines.append(f"{icon} {symbol:<5} {t.result}  — → —  {reason}")
                 total_skipped += 1
             else:
                 sign = "+" if (t.pnl_dollars or 0) >= 0 else ""
-                pnl_str = f"{sign}${t.pnl_dollars:.2f}" if t.pnl_dollars is not None else "—"
-                pnl_pct_str = f"{sign}{t.pnl_percent:.2%}" if t.pnl_percent is not None else "—"
+                pnl_str = f"{sign}${t.pnl_dollars:.2f} ({sign}{t.pnl_percent:.2%})" if t.pnl_dollars is not None else "—"
                 entry_str = f"{t.entry:.2f}" if t.entry else "—"
                 exit_str = f"{t.exit_price:.2f}" if t.exit_price else "—"
-                lines.append(f"{symbol:<8} {(t.signal or '—'):<7} {entry_str:>7} {exit_str:>7} {pnl_str:>8} {pnl_pct_str:>7} {(t.result or '—'):<12}")
+                lines.append(f"{icon} {symbol:<5} {t.signal or '—'}  {entry_str} → {exit_str}  {pnl_str}")
                 total_pnl += t.pnl_dollars or 0
                 if t.result == "WIN":
                     total_wins += 1
@@ -71,13 +73,16 @@ def generate_daily_summary(date: str, account_value: float) -> str:
             stats["net_pnl"], stats["win_rate"], account_value,
         )
 
-    lines.append("-" * 50)
+    lines.append("=" * 44)
     total_traded = total_wins + total_losses
+    total_stocks = len(all_symbols)
     win_rate = (total_wins / total_traded) if total_traded > 0 else 0.0
     sign = "+" if total_pnl >= 0 else ""
-    lines.append(f"Total trades: {total_traded} | Wins: {total_wins} | Losses: {total_losses} | Skipped: {total_skipped}")
-    lines.append(f"Net P&L today: {sign}${total_pnl:.2f} | Win rate: {win_rate:.0%} ({total_wins}/{total_traded})")
-    lines.append(f"Account value: ${account_value:,.2f}")
+    lines.append(f"Stocks: {total_stocks}  |  Traded: {total_traded}  |  Skipped: {total_skipped}")
+    if total_traded > 0:
+        lines.append(f"✅ {total_wins} wins  ❌ {total_losses} losses  |  Win rate: {win_rate:.0%}")
+    lines.append(f"Net P&L: {sign}${total_pnl:.2f}")
+    lines.append(f"Account: ${account_value:,.2f}")
     return "\n".join(lines)
 
 
