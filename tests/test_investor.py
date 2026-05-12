@@ -228,26 +228,22 @@ class TestCalculatePnl:
         investor, _, _ = _make_investor()
         signal = _make_signal()
         pnl = investor._calculate_pnl(signal, entry=500.0, exit_price=504.0, qty=10)
-        fees = investor._calculate_fees(sell_price=504.0, qty=10)
-        assert pnl == round((504.0 - 500.0) * 10 - fees, 2)
+        assert pnl == round((504.0 - 500.0) * 10, 2)
 
     def test_long_loss_pnl(self):
         investor, _, _ = _make_investor()
         signal = _make_signal()
         pnl = investor._calculate_pnl(signal, entry=500.0, exit_price=497.0, qty=10)
-        fees = investor._calculate_fees(sell_price=497.0, qty=10)
-        assert pnl == round((497.0 - 500.0) * 10 - fees, 2)
+        assert pnl == round((497.0 - 500.0) * 10, 2)
 
     def test_short_win_pnl(self):
         investor, _, _ = _make_investor()
         signal = _make_signal(direction="SHORT")
         pnl = investor._calculate_pnl(signal, entry=500.0, exit_price=496.0, qty=10)
-        fees = investor._calculate_fees(sell_price=500.0, qty=10)
-        assert pnl == round((500.0 - 496.0) * 10 - fees, 2)
+        assert pnl == round((500.0 - 496.0) * 10, 2)
 
     def test_short_loss_pnl(self):
         investor, _, _ = _make_investor()
         signal = _make_signal(direction="SHORT")
         pnl = investor._calculate_pnl(signal, entry=500.0, exit_price=503.0, qty=10)
-        fees = investor._calculate_fees(sell_price=500.0, qty=10)
-        assert pnl == round((500.0 - 503.0) * 10 - fees, 2)
+        assert pnl == round((500.0 - 503.0) * 10, 2)

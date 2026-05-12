@@ -28,14 +28,6 @@ SIGNAL_CUTOFF_HOUR = int(os.getenv("SIGNAL_CUTOFF_HOUR", "10"))
 SIGNAL_CUTOFF_MINUTE = int(os.getenv("SIGNAL_CUTOFF_MINUTE", "30"))
 REWARD_RISK_RATIO = float(os.getenv("REWARD_RISK_RATIO", "2.0"))
 
-# Trade cost simulation (paper trading treated as real)
-# Slippage: market order fill vs. signal price (per share, per leg)
-SLIPPAGE_PER_SHARE = float(os.getenv("SLIPPAGE_PER_SHARE", "0.01"))
-# Alpaca regulatory fees (applied on the sell leg)
-SEC_FEE_RATE  = 0.0000278   # Section 31 fee: $0.0000278 per $ of sale proceeds
-FINRA_TAF_RATE = 0.000145   # FINRA TAF: $0.000145 per share sold (max $7.27)
-FINRA_TAF_MAX  = 7.27
-
 # Watchlist
 DEFAULT_WATCHLIST = [s.strip() for s in os.getenv("DEFAULT_WATCHLIST", "SPY,QQQ,NVDA,TSLA,AAPL").split(",")]
 
