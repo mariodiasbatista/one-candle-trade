@@ -113,7 +113,12 @@ def job_mark_first_candle():
         if active:
             telegram.log_info(f"✅ <b>First Candle</b> complete — {len(active)} symbol(s) ready for FVG scan")
         else:
-            telegram.log_error("❌ <b>First Candle</b> — no symbols passed ATR filter, no trades today")
+            reasons: dict[str, list[str]] = {}
+            for s, c in retriever.get_contexts().items():
+                reason = (c.skip_reason or "unknown").split("(")[0].strip()
+                reasons.setdefault(reason, []).append(s)
+            detail = " | ".join(f"{r}: {', '.join(syms)}" for r, syms in reasons.items())
+            telegram.log_error(f"❌ <b>First Candle</b> — no trades today\n{detail}")
     except Exception as e:
         logger.error(f"First candle error: {e}")
         telegram.log_error(f"❌ <b>First Candle</b> failed: {e}")
