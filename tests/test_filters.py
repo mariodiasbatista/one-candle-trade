@@ -26,9 +26,19 @@ class TestNewsFilter:
 
 
 class TestGapFilter:
-    def test_gap_too_large(self):
-        # gap = abs(100 - 101) / 100 = 1% > 0.8%
+    def test_gap_below_old_threshold_passes(self):
+        # gap = 1.0% — would have failed at old 0.80% threshold, passes at 1.50%
         ok, reason = gap_filter(prev_close=100.0, today_open=101.0, premarket_range_pct=0.005)
+        assert ok is True
+
+    def test_gap_tsla_avgo_may12_passes(self):
+        # real case: TSLA/AVGO gapped 1.44% on 2026-05-12, blocked at 0.80%, now passes at 1.50%
+        ok, reason = gap_filter(prev_close=445.0, today_open=445.0 * 1.0144, premarket_range_pct=0.01)
+        assert ok is True
+
+    def test_gap_too_large(self):
+        # gap = 2.0% > 1.5% → should FAIL
+        ok, reason = gap_filter(prev_close=100.0, today_open=102.0, premarket_range_pct=0.005)
         assert ok is False
         assert "Gap too large" in reason
 
@@ -39,24 +49,23 @@ class TestGapFilter:
         assert "volatile" in reason
 
     def test_clean_premarket_passes(self):
-        # gap = 0.3% < 0.8%, range = 0.5% < 1.5%
+        # gap = 0.3% < 1.5%, range = 0.5% < 1.5%
         ok, reason = gap_filter(prev_close=100.0, today_open=100.3, premarket_range_pct=0.005)
         assert ok is True
         assert reason == ""
 
     def test_zero_prev_close_skips_check(self):
-        # prev_close=0 → skip gap check
         ok, reason = gap_filter(prev_close=0.0, today_open=500.0, premarket_range_pct=0.99)
         assert ok is True
 
     def test_gap_exactly_at_threshold_passes(self):
-        # gap_filter uses > (strictly greater), so 0.8% exactly should PASS
-        ok, _ = gap_filter(prev_close=100.0, today_open=100.8, premarket_range_pct=0.005)
+        # filter uses > (strictly greater), so exactly 1.5% should PASS
+        ok, _ = gap_filter(prev_close=100.0, today_open=101.5, premarket_range_pct=0.005)
         assert ok is True
 
     def test_gap_just_above_threshold_fails(self):
-        # gap = 0.81% > 0.8% → should FAIL
-        ok, reason = gap_filter(prev_close=100.0, today_open=100.81, premarket_range_pct=0.005)
+        # gap = 1.51% > 1.5% → should FAIL
+        ok, reason = gap_filter(prev_close=100.0, today_open=101.51, premarket_range_pct=0.005)
         assert ok is False
         assert "Gap too large" in reason
 
@@ -89,10 +98,30 @@ class TestAtrFilter:
         assert ok is True
 
     def test_candle_at_atr_min_boundary(self):
-        # range = exactly ATR_MIN_RATIO * atr = 0.3 * 5 = 1.5
-        candle = make_candle(100, 100.75, 99.25, 100)  # range = 1.5
+        # range = exactly ATR_MIN_RATIO * atr = 0.20 * 5 = 1.0
+        candle = make_candle(100, 100.5, 99.5, 100)  # range = 1.0
         ok, reason = atr_filter(candle, atr_14=5.0)
         assert ok is True  # range >= min (not strictly greater)
+
+    def test_candle_just_below_new_floor_fails(self):
+        # range = 19% of ATR = 0.19 * 5 = 0.95 < 1.0 floor → FAIL
+        candle = make_candle(100, 100.475, 99.525, 100)  # range = 0.95
+        ok, reason = atr_filter(candle, atr_14=5.0)
+        assert ok is False
+        assert "too small" in reason
+
+    def test_candle_between_old_and_new_floor_passes(self):
+        # range = 25% of ATR — would fail at old 30% floor, passes at new 20% floor
+        candle = make_candle(100, 100.625, 99.375, 100)  # range = 1.25, 25% of ATR=5
+        ok, reason = atr_filter(candle, atr_14=5.0)
+        assert ok is True
+
+    def test_tsla_may13_scenario_passes(self):
+        # TSLA: range=$4.23, ATR=$15.90 → 26.6% of ATR, passes 20% floor
+        from tests.conftest import make_candle as mc
+        candle = mc(445.0, 447.115, 442.885, 445.0)  # range ≈ 4.23
+        ok, reason = atr_filter(candle, atr_14=15.90)
+        assert ok is True
 
     def test_candle_at_atr_max_boundary(self):
         # range = ATR_MAX_RATIO * atr = 1.2 * 5 = 6.0
@@ -132,7 +161,7 @@ class TestRunAllFilters:
     def test_gap_filter_stops_chain(self):
         ok, reason, passed = run_all_filters(
             trade_date="2026-05-07",
-            prev_close=100.0, today_open=101.5,  # 1.5% gap
+            prev_close=100.0, today_open=102.0,  # 2.0% gap > 1.5% threshold
             premarket_range_pct=0.005,
             first_candle=self._valid_candle(),
             atr_14=5.0,
