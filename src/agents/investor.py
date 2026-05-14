@@ -8,7 +8,10 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, OrderStatus
 
-from src.config import ALPACA_API_KEY, ALPACA_SECRET_KEY
+from src.config import (
+    ALPACA_API_KEY, ALPACA_SECRET_KEY,
+    SLIPPAGE_PER_SHARE, SEC_FEE_RATE, FINRA_TAF_RATE, FINRA_TAF_MAX,
+)
 from src.models import TradeSignal
 from src.core.risk import calculate_position_size
 from src.db.repository import save_trade_signal, save_skip, close_trade, get_pending_trades
@@ -216,8 +219,17 @@ class Investor:
             else:
                 return "FORCED_CLOSE"
 
+    def _calculate_fees(self, sell_price: float, qty: int) -> float:
+        slippage = 2 * SLIPPAGE_PER_SHARE * qty
+        sec_fee  = SEC_FEE_RATE * sell_price * qty
+        finra    = min(FINRA_TAF_RATE * qty, FINRA_TAF_MAX)
+        return round(slippage + sec_fee + finra, 4)
+
     def _calculate_pnl(self, signal: TradeSignal, entry: float, exit_price: float, qty: int) -> float:
         if signal.signal == "LONG":
-            return round((exit_price - entry) * qty, 2)
+            gross = (exit_price - entry) * qty
+            fees  = self._calculate_fees(sell_price=exit_price, qty=qty)
         else:
-            return round((entry - exit_price) * qty, 2)
+            gross = (entry - exit_price) * qty
+            fees  = self._calculate_fees(sell_price=entry, qty=qty)
+        return round(gross - fees, 2)
