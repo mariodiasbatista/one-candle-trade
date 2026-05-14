@@ -200,27 +200,53 @@ class TestForceCloseAll:
 class TestDetermineResult:
     def test_long_at_take_profit_is_win(self):
         investor, _, _ = _make_investor()
-        signal = _make_signal()  # TP=504
+        signal = _make_signal()  # entry=500, SL=498, TP=504
         assert investor._determine_result(signal, 504.0) == "WIN"
         assert investor._determine_result(signal, 505.0) == "WIN"
 
-    def test_long_below_take_profit_is_loss(self):
+    def test_long_at_stop_loss_is_loss(self):
         investor, _, _ = _make_investor()
-        signal = _make_signal()  # TP=504
-        assert investor._determine_result(signal, 500.0) == "LOSS"
+        signal = _make_signal()  # SL=498
+        assert investor._determine_result(signal, 498.0) == "LOSS"
+        assert investor._determine_result(signal, 497.0) == "LOSS"
+
+    def test_long_between_sl_and_tp_is_forced_close(self):
+        investor, _, _ = _make_investor()
+        signal = _make_signal()  # SL=498, TP=504
+        # exit at 501 — above SL, below TP → FORCED_CLOSE (may have positive P&L)
+        assert investor._determine_result(signal, 501.0) == "FORCED_CLOSE"
+
+    def test_long_forced_close_with_profit(self):
+        # real case: AVGO entry=433.18, exit=434.17, SL=416.20, TP=467.14
+        investor, _, _ = _make_investor()
+        signal = _make_signal()
+        signal.entry = 433.18
+        signal.stop_loss = 416.20
+        signal.take_profit = 467.14
+        assert investor._determine_result(signal, 434.17) == "FORCED_CLOSE"
 
     def test_short_at_take_profit_is_win(self):
         investor, _, _ = _make_investor()
         signal = _make_signal(direction="SHORT")
         signal.take_profit = 496.0
+        signal.stop_loss = 502.0
         assert investor._determine_result(signal, 496.0) == "WIN"
         assert investor._determine_result(signal, 495.0) == "WIN"
 
-    def test_short_above_take_profit_is_loss(self):
+    def test_short_at_stop_loss_is_loss(self):
         investor, _, _ = _make_investor()
         signal = _make_signal(direction="SHORT")
         signal.take_profit = 496.0
-        assert investor._determine_result(signal, 499.0) == "LOSS"
+        signal.stop_loss = 502.0
+        assert investor._determine_result(signal, 502.0) == "LOSS"
+        assert investor._determine_result(signal, 503.0) == "LOSS"
+
+    def test_short_between_sl_and_tp_is_forced_close(self):
+        investor, _, _ = _make_investor()
+        signal = _make_signal(direction="SHORT")
+        signal.take_profit = 496.0
+        signal.stop_loss = 502.0
+        assert investor._determine_result(signal, 499.0) == "FORCED_CLOSE"
 
 
 class TestCalculatePnl:

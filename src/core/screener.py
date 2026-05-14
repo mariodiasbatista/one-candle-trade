@@ -16,7 +16,7 @@ ET = pytz.timezone("America/New_York")
 # S&P 500 large-cap + major ETF universe for screener
 SCREENER_UNIVERSE = [
     "SPY", "QQQ", "IWM", "DIA",
-    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "GOOG",
+    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL",
     "AVGO", "JPM", "V", "MA", "UNH", "XOM", "WMT", "HD",
     "BAC", "PG", "JNJ", "COST", "ABBV", "MRK", "CVX", "LLY",
     "AMD", "NFLX", "ORCL", "CRM", "ADBE", "INTC", "QCOM",

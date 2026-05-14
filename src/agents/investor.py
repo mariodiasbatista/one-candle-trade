@@ -202,9 +202,19 @@ class Investor:
 
     def _determine_result(self, signal: TradeSignal, exit_price: float) -> str:
         if signal.signal == "LONG":
-            return "WIN" if exit_price >= signal.take_profit - 0.01 else "LOSS"
+            if exit_price >= signal.take_profit - 0.01:
+                return "WIN"
+            elif exit_price <= signal.stop_loss + 0.01:
+                return "LOSS"
+            else:
+                return "FORCED_CLOSE"
         else:
-            return "WIN" if exit_price <= signal.take_profit + 0.01 else "LOSS"
+            if exit_price <= signal.take_profit + 0.01:
+                return "WIN"
+            elif exit_price >= signal.stop_loss - 0.01:
+                return "LOSS"
+            else:
+                return "FORCED_CLOSE"
 
     def _calculate_pnl(self, signal: TradeSignal, entry: float, exit_price: float, qty: int) -> float:
         if signal.signal == "LONG":
