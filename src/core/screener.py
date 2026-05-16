@@ -3,11 +3,8 @@ from datetime import datetime
 import pytz
 
 from src.data.alpaca_data import (
-    get_avg_volume_30d, calculate_atr14, get_beta,
-    get_first_5min_candle, get_1min_candles, get_daily_candles,
+    get_avg_volume_30d, calculate_atr14, get_beta, get_daily_candles,
 )
-from src.core.filters import atr_filter
-from src.core.fvg import detect_fvg, check_volume_confirmation
 from src.config import SCREENER_MIN_IEX_VOLUME
 
 logger = logging.getLogger(__name__)
@@ -60,43 +57,63 @@ def passes_hard_filters(symbol: str, date: str) -> tuple[bool, dict]:
         return False, {}
 
 
-def get_fvg_quality_score(symbol: str, lookback_days: int = 30) -> float:
+def _score_from_data(
+    yesterday,
+    avg_volume: float,
+    atr_pct: float,
+    recent_candles: list,
+) -> float:
     """
-    Score = fraction of tradeable days (last 30) where a clean, volume-confirmed
-    FVG appeared that broke the first-candle HIGH or LOW.
-    """
-    from src.data.alpaca_data import get_daily_candles as get_days
-    tradeable = 0
-    valid = 0
+    Pure scoring function — no external calls, fully testable.
 
-    trading_days = get_days(symbol, lookback_days=lookback_days + 5)
-    if not trading_days:
+    Components (weights):
+      0.35 — Momentum:      body ratio of yesterday's candle (strong move = likely gap)
+      0.35 — Volume surge:  yesterday's volume vs 30-day avg (institutional interest)
+      0.20 — ATR%:          intraday range potential, normalised to [0.015, 0.04]
+      0.10 — Gap tendency:  fraction of last 5 sessions that opened with a gap > 0.3%
+    """
+    # 1. Momentum
+    candle_range = yesterday.high - yesterday.low
+    body = abs(yesterday.close - yesterday.open)
+    momentum = min(body / candle_range, 1.0) if candle_range > 0 else 0.0
+
+    # 2. Volume surge — capped at 3× average
+    vol_ratio = (yesterday.volume / avg_volume) if avg_volume > 0 else 0.0
+    volume_surge = min(vol_ratio / 3.0, 1.0)
+
+    # 3. ATR% — normalise from [1.5%, 4%] to [0, 1]
+    atr_norm = (atr_pct - 0.015) / (0.04 - 0.015)
+    atr_norm = max(0.0, min(atr_norm, 1.0))
+
+    # 4. Gap tendency — fraction of last 5 sessions with gap > 0.3%
+    gap_days = 0
+    for i in range(1, min(6, len(recent_candles))):
+        prev_close = recent_candles[i - 1].close
+        curr_open  = recent_candles[i].open
+        if prev_close > 0 and abs(curr_open - prev_close) / prev_close >= 0.003:
+            gap_days += 1
+    gap_tendency = gap_days / 5.0
+
+    return round(
+        0.35 * momentum +
+        0.35 * volume_surge +
+        0.20 * atr_norm +
+        0.10 * gap_tendency,
+        3,
+    )
+
+
+def compute_daily_score(symbol: str, atr_pct: float) -> float:
+    """Score a symbol using daily candle data — IEX-compatible, no intraday required."""
+    try:
+        candles = get_daily_candles(symbol, lookback_days=10)
+        if len(candles) < 2:
+            return 0.0
+        avg_volume = get_avg_volume_30d(symbol)
+        return _score_from_data(candles[-1], avg_volume, atr_pct, candles)
+    except Exception as e:
+        logger.debug(f"Score error {symbol}: {e}")
         return 0.0
-
-    for candle_day in trading_days[-lookback_days:]:
-        day_str = candle_day.timestamp.strftime("%Y-%m-%d")
-        try:
-            first_candle = get_first_5min_candle(symbol, day_str, retries=1)
-            if not first_candle:
-                continue
-            atr = calculate_atr14(symbol)
-            ok, _ = atr_filter(first_candle, atr)
-            if not ok:
-                continue
-            tradeable += 1
-            candles_1min = get_1min_candles(symbol, day_str)
-            if len(candles_1min) < 8:
-                continue
-            fvg = detect_fvg(candles_1min, first_candle.high, first_candle.low)
-            if fvg:
-                confirmed, _ = check_volume_confirmation(candles_1min)
-                if confirmed:
-                    valid += 1
-        except Exception as e:
-            logger.debug(f"FVG score error {symbol} {day_str}: {e}")
-            continue
-
-    return round(valid / tradeable, 3) if tradeable > 0 else 0.0
 
 
 def run_nightly_screener(date: str, top_n: int = 10) -> list[dict]:
@@ -110,10 +127,10 @@ def run_nightly_screener(date: str, top_n: int = 10) -> list[dict]:
         passes, meta = passes_hard_filters(symbol, date)
         if not passes:
             continue
-        score = get_fvg_quality_score(symbol)
+        score = compute_daily_score(symbol, meta.get("atr_pct", 0.0))
         meta["fvg_score"] = score
         candidates.append(meta)
-        logger.info(f"  {symbol}: FVG score={score:.3f}, ATR%={meta.get('atr_pct'):.3f}")
+        logger.info(f"  {symbol}: score={score:.3f}, ATR%={meta.get('atr_pct'):.3f}")
 
     candidates.sort(key=lambda x: x["fvg_score"], reverse=True)
     top = candidates[:top_n]
