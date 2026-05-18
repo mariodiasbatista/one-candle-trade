@@ -102,45 +102,70 @@ class TestExecuteSignal:
 
 
 class TestMonitorOpenPositions:
-    def test_filled_order_closes_win(self):
-        investor, client, telegram = _make_investor()
-        signal = _make_signal()
-        investor._open_trades["SPY"] = {"trade_id": "t1", "order_id": "o1", "signal": signal, "qty": 10}
+    def _no_position(self, client):
+        """Position gone from Alpaca — bracket TP/SL fired."""
+        client.get_all_positions.return_value = []
 
+    def _position_open(self, client, symbol="SPY"):
+        """Position still open on Alpaca."""
+        mock_pos = MagicMock()
+        mock_pos.symbol = symbol
+        client.get_all_positions.return_value = [mock_pos]
+
+    def _closed_order(self, client, fill_price: str):
+        """Simulate _find_exit_price finding a filled order."""
         mock_order = MagicMock()
         mock_order.status = OrderStatus.FILLED
-        mock_order.filled_avg_price = "505.0"  # above TP=504 → WIN
-        client.get_order_by_id.return_value = mock_order
+        mock_order.filled_avg_price = fill_price
+        client.get_orders.return_value = [mock_order]
+
+    def test_position_gone_closes_win(self):
+        investor, client, telegram = _make_investor()
+        signal = _make_signal()  # TP=504, SL=498
+        investor._open_trades["SPY"] = {"trade_id": "t1", "order_id": "o1", "signal": signal, "qty": 10}
+        self._no_position(client)
+        self._closed_order(client, "505.0")  # above TP → WIN
 
         with patch("src.agents.investor.close_trade") as mock_close:
             investor.monitor_open_positions()
 
         mock_close.assert_called_once()
-        args = mock_close.call_args[0]
-        assert args[2] == "WIN"
+        assert mock_close.call_args[0][2] == "WIN"
         assert "SPY" not in investor._open_trades
 
-    def test_filled_order_closes_loss(self):
+    def test_position_gone_closes_loss(self):
         investor, client, telegram = _make_investor()
-        signal = _make_signal()
+        signal = _make_signal()  # SL=498
         investor._open_trades["SPY"] = {"trade_id": "t2", "order_id": "o2", "signal": signal, "qty": 10}
+        self._no_position(client)
+        self._closed_order(client, "497.0")  # below SL → LOSS
 
+        with patch("src.agents.investor.close_trade") as mock_close:
+            investor.monitor_open_positions()
+
+        assert mock_close.call_args[0][2] == "LOSS"
+
+    def test_position_still_open_is_not_closed(self):
+        # Position still on Alpaca and entry order is not cancelled → no close
+        investor, client, _ = _make_investor()
+        signal = _make_signal()
+        investor._open_trades["SPY"] = {"trade_id": "t3", "order_id": "o3", "signal": signal, "qty": 10}
+        self._position_open(client)
         mock_order = MagicMock()
-        mock_order.status = OrderStatus.FILLED
-        mock_order.filled_avg_price = "497.0"  # below SL=498 → LOSS
+        mock_order.status = OrderStatus.FILLED  # entry filled, position still live
         client.get_order_by_id.return_value = mock_order
 
         with patch("src.agents.investor.close_trade") as mock_close:
             investor.monitor_open_positions()
 
-        args = mock_close.call_args[0]
-        assert args[2] == "LOSS"
+        mock_close.assert_not_called()
+        assert "SPY" in investor._open_trades
 
-    def test_cancelled_order_recorded(self):
+    def test_cancelled_entry_order_recorded(self):
         investor, client, _ = _make_investor()
         signal = _make_signal()
-        investor._open_trades["SPY"] = {"trade_id": "t3", "order_id": "o3", "signal": signal, "qty": 10}
-
+        investor._open_trades["SPY"] = {"trade_id": "t4", "order_id": "o4", "signal": signal, "qty": 10}
+        self._position_open(client)
         mock_order = MagicMock()
         mock_order.status = OrderStatus.CANCELED
         client.get_order_by_id.return_value = mock_order
@@ -154,27 +179,25 @@ class TestMonitorOpenPositions:
     def test_exception_during_monitor_continues(self):
         investor, client, _ = _make_investor()
         signal = _make_signal()
-        investor._open_trades["SPY"] = {"trade_id": "t4", "order_id": "o4", "signal": signal, "qty": 10}
-        client.get_order_by_id.side_effect = Exception("Network error")
+        investor._open_trades["SPY"] = {"trade_id": "t5", "order_id": "o5", "signal": signal, "qty": 10}
+        client.get_all_positions.side_effect = Exception("Network error")
 
         investor.monitor_open_positions()  # should not raise
         assert "SPY" in investor._open_trades  # not removed on exception
 
-    def test_filled_avg_price_none_falls_back_to_entry(self):
+    def test_no_exit_price_falls_back_to_entry(self):
+        # Position gone but get_orders returns nothing → fallback to signal.entry
         investor, client, _ = _make_investor()
         signal = _make_signal()  # entry=500.0
-        investor._open_trades["SPY"] = {"trade_id": "t5", "order_id": "o5", "signal": signal, "qty": 10}
-
-        mock_order = MagicMock()
-        mock_order.status = OrderStatus.FILLED
-        mock_order.filled_avg_price = None
-        client.get_order_by_id.return_value = mock_order
+        investor._open_trades["SPY"] = {"trade_id": "t6", "order_id": "o6", "signal": signal, "qty": 10}
+        client.get_all_positions.return_value = []
+        client.get_orders.return_value = []  # no closed orders found
 
         with patch("src.agents.investor.close_trade") as mock_close:
             investor.monitor_open_positions()
 
         args = mock_close.call_args[0]
-        assert args[1] == 500.0  # exit_price == signal.entry, not 0
+        assert args[1] == 500.0  # falls back to signal.entry
 
 
 class TestForceCloseAll:

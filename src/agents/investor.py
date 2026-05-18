@@ -5,8 +5,8 @@ from typing import Optional
 import pytz
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, OrderStatus
+from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest, GetOrdersRequest
+from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, OrderStatus, QueryOrderStatus
 
 from src.config import (
     ALPACA_API_KEY, ALPACA_SECRET_KEY,
@@ -143,17 +143,36 @@ class Investor:
         save_skip(symbol, date, reason)
         self._telegram.send_skip_notice(symbol, reason)
 
+    def _find_exit_price(self, symbol: str, fallback: float) -> float:
+        """Find actual exit fill price from recent closed orders on Alpaca."""
+        try:
+            orders = self._client.get_orders(filter=GetOrdersRequest(
+                status=QueryOrderStatus.CLOSED,
+                symbols=[symbol],
+                limit=5,
+            ))
+            for o in orders:
+                if o.status == OrderStatus.FILLED and o.filled_avg_price:
+                    return float(o.filled_avg_price)
+        except Exception:
+            pass
+        return fallback
+
     def monitor_open_positions(self):
-        """Poll open orders and record result when filled or cancelled."""
+        """Poll Alpaca positions and record result when bracket TP/SL closes them."""
         closed = []
+        try:
+            open_symbols = {p.symbol for p in self._client.get_all_positions()}
+        except Exception as e:
+            logger.warning(f"Agent 3: Could not fetch positions: {e}")
+            return
+
         for symbol, info in self._open_trades.items():
             try:
-                order = self._client.get_order_by_id(info["order_id"])
-                status = order.status
-
-                if status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED):
+                if symbol not in open_symbols:
+                    # Position no longer on Alpaca — bracket TP or SL fired
                     signal = info["signal"]
-                    exit_price = float(order.filled_avg_price or signal.entry)
+                    exit_price = self._find_exit_price(symbol, signal.entry)
                     result = self._determine_result(signal, exit_price)
                     pnl_dollars = self._calculate_pnl(signal, signal.entry, exit_price, info["qty"])
                     pnl_pct = pnl_dollars / (signal.entry * info["qty"]) if signal.entry > 0 else 0.0
@@ -161,10 +180,12 @@ class Investor:
                     logger.info(f"Agent 3: {symbol} {result} | exit={exit_price} | P&L=${pnl_dollars:.2f}")
                     self._telegram.send_result_notice(symbol, result, exit_price, pnl_dollars, pnl_pct)
                     closed.append(symbol)
-
-                elif status in (OrderStatus.CANCELED, OrderStatus.EXPIRED, OrderStatus.REJECTED):
-                    close_trade(info["trade_id"], 0.0, "CANCELLED", 0.0, 0.0)
-                    closed.append(symbol)
+                else:
+                    # Still in position — only close if entry was rejected/cancelled
+                    order = self._client.get_order_by_id(info["order_id"])
+                    if order.status in (OrderStatus.CANCELED, OrderStatus.EXPIRED, OrderStatus.REJECTED):
+                        close_trade(info["trade_id"], 0.0, "CANCELLED", 0.0, 0.0)
+                        closed.append(symbol)
 
             except Exception as e:
                 logger.warning(f"Agent 3: Monitor error for {symbol}: {e}")
