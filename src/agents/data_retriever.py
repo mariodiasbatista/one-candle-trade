@@ -22,7 +22,10 @@ class DataRetriever:
 
     def __init__(self):
         self._contexts: dict[str, MarketContext] = {}
-        self._watchlist: list[str] = list(DEFAULT_WATCHLIST)
+        try:
+            self._watchlist: list[str] = get_active_watchlist() or list(DEFAULT_WATCHLIST)
+        except Exception:
+            self._watchlist: list[str] = list(DEFAULT_WATCHLIST)
 
     # ------------------------------------------------------------------
     # Nightly screener — runs at 8 PM EST
