@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from src.db.repository import (
     get_trades_for_date, get_trades_for_month, get_trades_for_year,
-    save_daily_summary,
+    save_daily_summary, get_active_watchlist,
 )
 from src.db.schema import Trade
 
@@ -114,6 +114,7 @@ def generate_daily_summary(
     # ── Stocks — all watchlist symbols with their outcome ─
     lines.append("")
     lines.append("📊 Stocks")
+    watchlist = get_active_watchlist() or []
 
     # Only stocks that completed the full FVG window with no signal are "checked"
     MONITORED_REASON = "No valid signal by 10:30 AM cutoff"
@@ -147,6 +148,11 @@ def generate_daily_summary(
         seen.add(t.symbol)
         reason = (t.skip_reason or "").split("(")[0].strip()
         lines.append(f"  ⏭ {t.symbol} — {reason}")
+
+    # Watchlist symbols with no DB record yet — currently being monitored
+    for symbol in watchlist:
+        if symbol not in seen:
+            lines.append(f"  🔄 {symbol} — monitoring")
 
     # Save DB summaries
     for symbol in all_symbols:
