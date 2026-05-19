@@ -111,18 +111,46 @@ def generate_daily_summary(
         wr = len(wins) / len(actual) if actual else 0.0
         lines.append(f"Win rate:        {wr:.0%}  ({len(wins)}W / {len(losses)}L)")
 
-    # ── Skipped ───────────────────────────────────────
-    if skipped:
-        lines.append("")
-        lines.append("⏭ Skipped")
-        seen = set()
-        for t in skipped:
-            key = (t.symbol, t.skip_reason)
-            if key in seen:
-                continue
-            seen.add(key)
-            reason = (t.skip_reason or "").split("(")[0].strip()
-            lines.append(f"  {t.symbol}: {reason}")
+    # ── Stocks — all watchlist symbols with their outcome ─
+    lines.append("")
+    lines.append("📊 Stocks")
+
+    # Pre-market skips (gap, news, volatility)
+    PREMARKET_REASONS = {"Gap too large", "Pre-market too volatile",
+                         "CPI release day", "FOMC interest rate decision day",
+                         "NFP (Non-Farm Payrolls) release day"}
+    premarket_skips = [t for t in skipped
+                       if any(r in (t.skip_reason or "") for r in PREMARKET_REASONS)]
+    checked_skips   = [t for t in skipped if t not in premarket_skips]
+
+    seen = set()
+    # Traded symbols
+    for t in actual:
+        if t.symbol in seen:
+            continue
+        seen.add(t.symbol)
+        icon = _RESULT_ICON.get(t.result, "•")
+        sign = "+" if (t.pnl_dollars or 0) >= 0 else ""
+        pnl_str = f"  {sign}${t.pnl_dollars:.2f}" if t.pnl_dollars is not None else ""
+        entry_str = f"${t.entry:.2f}" if t.entry else "—"
+        exit_str  = f"${t.exit_price:.2f}" if t.exit_price else "—"
+        lines.append(f"  {icon} {t.symbol} {t.signal} {entry_str} → {exit_str}{pnl_str}")
+
+    # Checked but no trade (passed pre-market, stopped at ATR or 10:30 cutoff)
+    for t in checked_skips:
+        if t.symbol in seen:
+            continue
+        seen.add(t.symbol)
+        reason = (t.skip_reason or "").split("(")[0].strip()
+        lines.append(f"  🔍 {t.symbol} — {reason}")
+
+    # Pre-market blocked
+    for t in premarket_skips:
+        if t.symbol in seen:
+            continue
+        seen.add(t.symbol)
+        reason = (t.skip_reason or "").split("(")[0].strip()
+        lines.append(f"  ⏭ {t.symbol} — {reason}")
 
     # Save DB summaries
     for symbol in all_symbols:

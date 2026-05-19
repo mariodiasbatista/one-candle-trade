@@ -46,10 +46,11 @@ class TestGenerateDailySummary:
         assert "0W / 1L" in result
 
     def test_skip_record_counted(self, clean_db):
-        save_skip("SPY", "2026-05-07", "CPI day")
+        save_skip("SPY", "2026-05-07", "CPI release day")
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "⏭ Skipped" in result
+        assert "📊 Stocks" in result
         assert "SPY" in result
+        assert "⏭" in result
 
     def test_win_rate_calculated(self, clean_db):
         _insert_win()
@@ -77,15 +78,15 @@ class TestGenerateDailySummary:
         tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o4")
         close_trade(tid, exit_price=0.0, result="CANCELLED", pnl_dollars=0.0, pnl_percent=0.0)
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "⏭ Skipped" in result
+        assert "📊 Stocks" in result
         assert "Buys today:      0" in result
 
     def test_cancelled_trade_shown_with_dashes_not_zero_pnl(self, clean_db):
         tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o5")
         close_trade(tid, exit_price=0.0, result="CANCELLED", pnl_dollars=0.0, pnl_percent=0.0)
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "⏭ Skipped" in result
-        assert "$0.00" not in result.split("Realized")[1]  # no $0.00 in activity section
+        assert "📊 Stocks" in result
+        assert "$0.00" not in result.split("Realized")[1]
 
 
 class TestGenerateMonthlySummary:
