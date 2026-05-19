@@ -197,14 +197,51 @@ def job_force_close():
         telegram.log_error(f"❌ <b>Force Close</b> failed: {e}")
 
 
+def _build_open_positions():
+    """Fetch Alpaca positions and enrich with DB stop_loss."""
+    from src.db.repository import get_trades_for_date
+    today = datetime.now(ET).strftime("%Y-%m-%d")
+    db_trades = {t.symbol: t for t in get_trades_for_date(today) if t.stop_loss}
+    result = []
+    try:
+        for p in investor._client.get_all_positions():
+            db = db_trades.get(p.symbol)
+            result.append({
+                "symbol":      p.symbol,
+                "qty":         int(float(p.qty)),
+                "entry":       float(p.avg_entry_price or 0),
+                "current":     float(p.current_price or 0),
+                "total_pl":    float(p.unrealized_pl or 0),
+                "total_plpc":  float(p.unrealized_plpc or 0),
+                "today_pl":    float(p.unrealized_intraday_pl or 0),
+                "today_plpc":  float(p.unrealized_intraday_plpc or 0),
+                "stop_loss":   db.stop_loss if db else None,
+            })
+    except Exception as e:
+        logger.warning(f"Could not fetch positions: {e}")
+    return result
+
+
 def job_daily_summary():
     """4:05 PM EST — generate and send daily P&L summary."""
     logger.info("=== DAILY SUMMARY ===")
     telegram.log_info("📊 <b>Daily Summary</b> generating...")
     try:
-        today = datetime.now(ET).strftime("%Y-%m-%d")
-        account_value = investor.get_account_value()
-        report = generate_daily_summary(today, account_value)
+        now    = datetime.now(ET)
+        today  = now.strftime("%Y-%m-%d")
+        ts     = now.strftime("%Y-%m-%d %H:%M ET")
+        account = investor._client.get_account()
+        account_value = float(account.portfolio_value)
+        day_pnl = float(account.equity) - float(account.last_equity)
+        positions = _build_open_positions()
+        report = generate_daily_summary(
+            today, account_value,
+            timestamp=ts,
+            cash=float(account.cash),
+            buying_power=float(account.buying_power),
+            day_pnl=day_pnl,
+            open_positions=positions,
+        )
         logger.info(f"\n{report}")
         telegram.send_daily_summary(report)
     except Exception as e:

@@ -34,55 +34,106 @@ _RESULT_ICON = {
 }
 
 
-def generate_daily_summary(date: str, account_value: float) -> str:
+def generate_daily_summary(
+    date: str,
+    account_value: float,
+    timestamp: str = "",
+    cash: float = 0.0,
+    buying_power: float = 0.0,
+    day_pnl: float = 0.0,
+    open_positions: Optional[list] = None,
+) -> str:
+    import pytz
+    ET = pytz.timezone("America/New_York")
+    now_str = timestamp or datetime.now(ET).strftime("%Y-%m-%d %H:%M ET")
     all_trades = get_trades_for_date(date)
     all_symbols = sorted(set(t.symbol for t in all_trades))
+    open_positions = open_positions or []
 
-    lines = [f"ONE CANDLE TRADE — {date}", "=" * 44]
+    lines = [f"📊 Portfolio — {now_str}", ""]
 
-    total_pnl = 0.0
-    total_wins = 0
-    total_losses = 0
-    total_skipped = 0
+    # ── Account ──────────────────────────────────────
+    day_icon = "🟢" if day_pnl >= 0 else "🔴"
+    day_sign = "+" if day_pnl >= 0 else ""
+    lines.append("💼 Account")
+    lines.append(f"Portfolio:    ${account_value:>12,.2f}")
+    if cash:
+        lines.append(f"Cash:         ${cash:>12,.2f}")
+    if buying_power:
+        lines.append(f"Buying Power: ${buying_power:>12,.2f}")
+    lines.append(f"Day P&L:      {day_icon} ${day_sign}{day_pnl:,.2f}")
 
+    # ── Open Positions ────────────────────────────────
+    if open_positions:
+        lines.append("")
+        lines.append(f"📈 Positions ({len(open_positions)} open)")
+        for pos in open_positions:
+            qty   = pos.get("qty", 0)
+            entry = pos.get("entry", 0.0)
+            cur   = pos.get("current", 0.0)
+            sym   = pos.get("symbol", "")
+            total_pl   = pos.get("total_pl", 0.0)
+            total_plpc = pos.get("total_plpc", 0.0)
+            today_pl   = pos.get("today_pl", 0.0)
+            today_plpc = pos.get("today_plpc", 0.0)
+            stop       = pos.get("stop_loss")
+
+            pl_icon  = "🟢" if total_pl >= 0 else "🔴"
+            pl_sign  = "+" if total_pl >= 0 else ""
+            td_sign  = "+" if today_pl >= 0 else ""
+            stop_str = f"  Stop ${stop:.2f}" if stop else ""
+            lines.append(f"{sym} {qty}sh @ ${entry:.2f} → ${cur:.2f}")
+            lines.append(
+                f"  {pl_icon} Total {pl_sign}${total_pl:.2f} ({pl_sign}{total_plpc:.1%})"
+                f"  Today {td_sign}${today_pl:.2f} ({td_sign}{today_plpc:.1%}){stop_str}"
+            )
+
+    # ── Today's Activity ──────────────────────────────
+    actual  = [t for t in all_trades if t.result in ("WIN", "LOSS", "FORCED_CLOSE")]
+    skipped = [t for t in all_trades if t.result in ("SKIP", "CANCELLED")]
+    buys    = [t for t in actual if t.signal == "LONG"]
+    sells   = [t for t in actual if t.signal == "SHORT" or t.closed_at is not None]
+    realized_pnl = sum(t.pnl_dollars or 0 for t in actual)
+    wins    = [t for t in actual if t.result == "WIN"]
+    losses  = [t for t in actual if t.result in ("LOSS", "FORCED_CLOSE")]
+
+    lines.append("")
+    lines.append("📋 Today's Activity")
+    lines.append(f"Positions open:  {len(open_positions)}")
+    buys_str  = ", ".join(t.symbol for t in buys)  or "none"
+    sells_str = ", ".join(t.symbol for t in sells) or "none"
+    lines.append(f"Buys today:      {len(buys)} — {buys_str}")
+    lines.append(f"Sells today:     {len(sells)} — {sells_str}")
+    r_icon = "🟢" if realized_pnl >= 0 else "🔴"
+    r_sign = "+" if realized_pnl >= 0 else ""
+    lines.append(f"Realized P&L:    {r_icon} ${r_sign}{realized_pnl:.2f}  (after fees & slippage)")
+    if wins or losses:
+        wr = len(wins) / len(actual) if actual else 0.0
+        lines.append(f"Win rate:        {wr:.0%}  ({len(wins)}W / {len(losses)}L)")
+
+    # ── Skipped ───────────────────────────────────────
+    if skipped:
+        lines.append("")
+        lines.append("⏭ Skipped")
+        seen = set()
+        for t in skipped:
+            key = (t.symbol, t.skip_reason)
+            if key in seen:
+                continue
+            seen.add(key)
+            reason = (t.skip_reason or "").split("(")[0].strip()
+            lines.append(f"  {t.symbol}: {reason}")
+
+    # Save DB summaries
     for symbol in all_symbols:
         trades = [t for t in all_trades if t.symbol == symbol]
-        for t in trades:
-            icon = _RESULT_ICON.get(t.result or "SKIP", "•")
-            if t.result in ("SKIP", "CANCELLED"):
-                reason = (t.skip_reason or "").split("(")[0].strip()
-                lines.append(f"{icon} {symbol:<5} {t.result}  — → —  {reason}")
-                total_skipped += 1
-            else:
-                sign = "+" if (t.pnl_dollars or 0) >= 0 else ""
-                pnl_str = f"{sign}${t.pnl_dollars:.2f} ({sign}{t.pnl_percent:.2%})" if t.pnl_dollars is not None else "—"
-                entry_str = f"{t.entry:.2f}" if t.entry else "—"
-                exit_str = f"{t.exit_price:.2f}" if t.exit_price else "—"
-                lines.append(f"{icon} {symbol:<5} {t.signal or '—'}  {entry_str} → {exit_str}  {pnl_str}")
-                total_pnl += t.pnl_dollars or 0
-                if t.result == "WIN":
-                    total_wins += 1
-                elif t.result in ("LOSS", "FORCED_CLOSE"):
-                    total_losses += 1
-
-        # Save per-symbol daily summary to DB
-        stats = _build_trade_stats(trades)
+        stats  = _build_trade_stats(trades)
         save_daily_summary(
             date, symbol,
             stats["total"], stats["wins"], stats["losses"], stats["skipped"],
             stats["net_pnl"], stats["win_rate"], account_value,
         )
 
-    lines.append("=" * 44)
-    total_traded = total_wins + total_losses
-    total_stocks = len(all_symbols)
-    win_rate = (total_wins / total_traded) if total_traded > 0 else 0.0
-    sign = "+" if total_pnl >= 0 else ""
-    lines.append(f"Stocks: {total_stocks}  |  Traded: {total_traded}  |  Skipped: {total_skipped}")
-    if total_traded > 0:
-        lines.append(f"✅ {total_wins} wins  ❌ {total_losses} losses  |  Win rate: {win_rate:.0%}")
-    lines.append(f"Net P&L: {sign}${total_pnl:.2f}  (after fees & slippage)")
-    lines.append(f"Account: ${account_value:,.2f}")
     return "\n".join(lines)
 
 

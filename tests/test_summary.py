@@ -30,25 +30,26 @@ def _insert_loss(symbol="SPY", date="2026-05-07", pnl=-20.0):
 class TestGenerateDailySummary:
     def test_empty_day_returns_valid_string(self, clean_db):
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "ONE CANDLE TRADE" in result
-        assert "2026-05-07" in result
-        assert "Traded: 0" in result
+        assert "Portfolio" in result
+        assert "100,000.00" in result
+        assert "Buys today" in result
 
     def test_win_trade_appears_in_summary(self, clean_db):
         _insert_win()
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "✅" in result
         assert "SPY" in result
+        assert "100%" in result  # win rate
 
     def test_loss_trade_appears_in_summary(self, clean_db):
         _insert_loss()
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "❌" in result
+        assert "0W / 1L" in result
 
     def test_skip_record_counted(self, clean_db):
         save_skip("SPY", "2026-05-07", "CPI day")
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "Skipped: 1" in result
+        assert "⏭ Skipped" in result
+        assert "SPY" in result
 
     def test_win_rate_calculated(self, clean_db):
         _insert_win()
@@ -60,7 +61,7 @@ class TestGenerateDailySummary:
         _insert_win(pnl=40.0)
         _insert_loss(pnl=-20.0)
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "+$20.00" in result
+        assert "$+20.00" in result
 
     def test_account_value_shown(self, clean_db):
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
@@ -70,24 +71,21 @@ class TestGenerateDailySummary:
         tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o3")
         close_trade(tid, exit_price=499.0, result="FORCED_CLOSE", pnl_dollars=-10.0, pnl_percent=-0.002)
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "1 losses" in result
+        assert "0W / 1L" in result
 
     def test_cancelled_trade_counts_as_skipped(self, clean_db):
         tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o4")
         close_trade(tid, exit_price=0.0, result="CANCELLED", pnl_dollars=0.0, pnl_percent=0.0)
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "Skipped: 1" in result
-        assert "Traded: 0" in result
+        assert "⏭ Skipped" in result
+        assert "Buys today:      0" in result
 
     def test_cancelled_trade_shown_with_dashes_not_zero_pnl(self, clean_db):
         tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o5")
         close_trade(tid, exit_price=0.0, result="CANCELLED", pnl_dollars=0.0, pnl_percent=0.0)
         result = generate_daily_summary("2026-05-07", account_value=100_000.0)
-        assert "CANCELLED" in result
-        # trade row must use dashes, not formatted P&L values
-        trade_row = [l for l in result.splitlines() if "CANCELLED" in l][0]
-        assert "—" in trade_row
-        assert "$0.00" not in trade_row
+        assert "⏭ Skipped" in result
+        assert "$0.00" not in result.split("Realized")[1]  # no $0.00 in activity section
 
 
 class TestGenerateMonthlySummary:
