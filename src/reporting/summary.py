@@ -115,13 +115,10 @@ def generate_daily_summary(
     lines.append("")
     lines.append("📊 Stocks")
 
-    # Pre-market skips (gap, news, volatility)
-    PREMARKET_REASONS = {"Gap too large", "Pre-market too volatile",
-                         "CPI release day", "FOMC interest rate decision day",
-                         "NFP (Non-Farm Payrolls) release day"}
-    premarket_skips = [t for t in skipped
-                       if any(r in (t.skip_reason or "") for r in PREMARKET_REASONS)]
-    checked_skips   = [t for t in skipped if t not in premarket_skips]
+    # Only stocks that completed the full FVG window with no signal are "checked"
+    MONITORED_REASON = "No valid signal by 10:30 AM cutoff"
+    monitored_skips = [t for t in skipped if MONITORED_REASON in (t.skip_reason or "")]
+    other_skips     = [t for t in skipped if t not in monitored_skips]
 
     seen = set()
     # Traded symbols
@@ -136,16 +133,15 @@ def generate_daily_summary(
         exit_str  = f"${t.exit_price:.2f}" if t.exit_price else "—"
         lines.append(f"  {icon} {t.symbol} {t.signal} {entry_str} → {exit_str}{pnl_str}")
 
-    # Checked but no trade (passed pre-market, stopped at ATR or 10:30 cutoff)
-    for t in checked_skips:
+    # Monitored through full FVG window — no signal found
+    for t in monitored_skips:
         if t.symbol in seen:
             continue
         seen.add(t.symbol)
-        reason = (t.skip_reason or "").split("(")[0].strip()
-        lines.append(f"  🔍 {t.symbol} — {reason}")
+        lines.append(f"  🔍 {t.symbol} — monitored, no FVG signal")
 
-    # Pre-market blocked
-    for t in premarket_skips:
+    # Skipped at any earlier stage (pre-market, ATR filter, no candle data)
+    for t in other_skips:
         if t.symbol in seen:
             continue
         seen.add(t.symbol)
