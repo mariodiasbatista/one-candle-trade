@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Optional
 from src.db.repository import (
     get_trades_for_date, get_trades_for_month, get_trades_for_year,
-    save_daily_summary, get_active_watchlist,
+    save_daily_summary, get_active_watchlist, get_all_realized_pnl,
 )
+from src.config import INITIAL_ACCOUNT_VALUE
 from src.db.schema import Trade
 
 
@@ -62,6 +63,11 @@ def generate_daily_summary(
     if buying_power:
         lines.append(f"Buying Power: ${buying_power:>12,.2f}")
     lines.append(f"Day P&L:      {day_icon} ${day_sign}{day_pnl:,.2f}")
+    cum_pnl, cum_wins, cum_losses = get_all_realized_pnl()
+    cum_pct = cum_pnl / INITIAL_ACCOUNT_VALUE * 100
+    cum_icon = "🟢" if cum_pnl >= 0 else "🔴"
+    cum_sign = "+" if cum_pnl >= 0 else ""
+    lines.append(f"Realized:     {cum_icon} ${cum_sign}{cum_pnl:,.2f} ({cum_sign}{cum_pct:.2f}%)  [{cum_wins}W/{cum_losses}L all-time]")
 
     # ── Open Positions ────────────────────────────────
     if open_positions:

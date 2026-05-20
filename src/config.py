@@ -7,6 +7,7 @@ load_dotenv()
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
 ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_PAPER = True
+INITIAL_ACCOUNT_VALUE = float(os.getenv("INITIAL_ACCOUNT_VALUE", "100000"))
 
 # Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")

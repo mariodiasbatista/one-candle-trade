@@ -95,6 +95,18 @@ def get_trades_for_year(year: int, symbol: Optional[str] = None) -> list[Trade]:
         return query.all()
 
 
+def get_all_realized_pnl() -> tuple[float, int, int]:
+    """Returns (total_pnl, total_wins, total_losses) across all closed trades."""
+    with get_session() as session:
+        trades = session.query(Trade).filter(
+            Trade.result.in_(["WIN", "LOSS", "FORCED_CLOSE"])
+        ).all()
+    total_pnl = sum(t.pnl_dollars or 0 for t in trades)
+    wins   = sum(1 for t in trades if t.result == "WIN")
+    losses = sum(1 for t in trades if t.result in ("LOSS", "FORCED_CLOSE"))
+    return round(total_pnl, 2), wins, losses
+
+
 def save_daily_summary(date: str, symbol: str, total: int, wins: int, losses: int,
                        skipped: int, net_pnl: float, net_pnl_pct: float, account_value: float):
     win_rate = (wins / (wins + losses)) if (wins + losses) > 0 else 0.0
