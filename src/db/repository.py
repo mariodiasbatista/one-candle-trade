@@ -96,14 +96,15 @@ def get_trades_for_year(year: int, symbol: Optional[str] = None) -> list[Trade]:
 
 
 def get_all_realized_pnl() -> tuple[float, int, int]:
-    """Returns (total_pnl, total_wins, total_losses) across all closed trades."""
+    """Returns (total_pnl, total_wins, total_losses) across all closed trades.
+    Win/loss is determined by actual P&L, so a profitable FORCED_CLOSE counts as a win."""
     with get_session() as session:
         trades = session.query(Trade).filter(
             Trade.result.in_(["WIN", "LOSS", "FORCED_CLOSE"])
         ).all()
     total_pnl = sum(t.pnl_dollars or 0 for t in trades)
-    wins   = sum(1 for t in trades if t.result == "WIN")
-    losses = sum(1 for t in trades if t.result in ("LOSS", "FORCED_CLOSE"))
+    wins   = sum(1 for t in trades if (t.pnl_dollars or 0) > 0)
+    losses = sum(1 for t in trades if (t.pnl_dollars or 0) <= 0)
     return round(total_pnl, 2), wins, losses
 
 

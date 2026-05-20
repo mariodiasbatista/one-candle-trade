@@ -11,8 +11,8 @@ from src.db.schema import Trade
 def _build_trade_stats(trades: list[Trade]) -> dict:
     actual = [t for t in trades if t.result in ("WIN", "LOSS", "FORCED_CLOSE")]
     skipped = [t for t in trades if t.result in ("SKIP", "CANCELLED")]
-    wins = [t for t in actual if t.result == "WIN"]
-    losses = [t for t in actual if t.result in ("LOSS", "FORCED_CLOSE")]
+    wins = [t for t in actual if (t.pnl_dollars or 0) > 0]
+    losses = [t for t in actual if (t.pnl_dollars or 0) <= 0]
     net_pnl = sum(t.pnl_dollars or 0 for t in actual)
     win_rate = len(wins) / len(actual) if actual else 0.0
     return {
@@ -100,8 +100,8 @@ def generate_daily_summary(
     buys    = [t for t in actual if t.signal == "LONG"]
     sells   = [t for t in actual if t.signal == "SHORT" or t.closed_at is not None]
     realized_pnl = sum(t.pnl_dollars or 0 for t in actual)
-    wins    = [t for t in actual if t.result == "WIN"]
-    losses  = [t for t in actual if t.result in ("LOSS", "FORCED_CLOSE")]
+    wins    = [t for t in actual if (t.pnl_dollars or 0) > 0]
+    losses  = [t for t in actual if (t.pnl_dollars or 0) <= 0]
 
     lines.append("")
     lines.append("📋 Today's Activity")
