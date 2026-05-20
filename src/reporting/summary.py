@@ -67,7 +67,7 @@ def generate_daily_summary(
     cum_pct = cum_pnl / INITIAL_ACCOUNT_VALUE * 100
     cum_icon = "🟢" if cum_pnl >= 0 else "🔴"
     cum_sign = "+" if cum_pnl >= 0 else ""
-    lines.append(f"Realized:     {cum_icon} ${cum_sign}{cum_pnl:,.2f} ({cum_sign}{cum_pct:.2f}%)  [{cum_wins}W/{cum_losses}L all-time]")
+    lines.append(f"Cumulative:   {cum_icon} ${cum_sign}{cum_pnl:,.2f} ({cum_sign}{cum_pct:.2f}%)  [{cum_wins}W/{cum_losses}L all-time]")
 
     # ── Open Positions ────────────────────────────────
     if open_positions:
