@@ -4,6 +4,7 @@ from src.db.repository import (
     save_trade_signal, save_skip, close_trade,
     get_trades_for_date, get_trades_for_month, get_trades_for_year,
     save_daily_summary, update_watchlist, get_active_watchlist,
+    get_all_realized_pnl,
 )
 
 
@@ -154,3 +155,72 @@ class TestWatchlist:
 
     def test_empty_watchlist_returns_empty(self, clean_db):
         assert get_active_watchlist() == []
+
+
+class TestGetAllRealizedPnl:
+    def test_empty_db_returns_zeros(self, clean_db):
+        pnl, wins, losses = get_all_realized_pnl()
+        assert pnl == 0.0
+        assert wins == 0
+        assert losses == 0
+
+    def test_win_counts_as_win(self, clean_db):
+        tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o1")
+        close_trade(tid, exit_price=504.0, result="WIN", pnl_dollars=40.0, pnl_percent=0.008)
+        pnl, wins, losses = get_all_realized_pnl()
+        assert pnl == 40.0
+        assert wins == 1
+        assert losses == 0
+
+    def test_loss_counts_as_loss(self, clean_db):
+        tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o2")
+        close_trade(tid, exit_price=497.0, result="LOSS", pnl_dollars=-30.0, pnl_percent=-0.006)
+        pnl, wins, losses = get_all_realized_pnl()
+        assert pnl == -30.0
+        assert wins == 0
+        assert losses == 1
+
+    def test_profitable_forced_close_counts_as_win(self, clean_db):
+        # FORCED_CLOSE with positive P&L → win (money in pocket)
+        tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o3")
+        close_trade(tid, exit_price=501.0, result="FORCED_CLOSE", pnl_dollars=10.90, pnl_percent=0.002)
+        pnl, wins, losses = get_all_realized_pnl()
+        assert pnl == 10.90
+        assert wins == 1
+        assert losses == 0
+
+    def test_losing_forced_close_counts_as_loss(self, clean_db):
+        # FORCED_CLOSE with negative P&L → loss
+        tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o4")
+        close_trade(tid, exit_price=499.0, result="FORCED_CLOSE", pnl_dollars=-5.0, pnl_percent=-0.001)
+        pnl, wins, losses = get_all_realized_pnl()
+        assert pnl == -5.0
+        assert wins == 0
+        assert losses == 1
+
+    def test_skip_records_excluded(self, clean_db):
+        save_skip("SPY", "2026-05-07", "Gap too large")
+        pnl, wins, losses = get_all_realized_pnl()
+        assert pnl == 0.0
+        assert wins == 0
+        assert losses == 0
+
+    def test_cumulative_across_multiple_trades(self, clean_db):
+        t1 = save_trade_signal(_make_signal(date="2026-05-07"), qty=10, alpaca_order_id="o5")
+        close_trade(t1, exit_price=504.0, result="WIN", pnl_dollars=40.0, pnl_percent=0.008)
+        t2 = save_trade_signal(_make_signal(date="2026-05-08"), qty=10, alpaca_order_id="o6")
+        close_trade(t2, exit_price=497.0, result="LOSS", pnl_dollars=-20.0, pnl_percent=-0.004)
+        t3 = save_trade_signal(_make_signal(date="2026-05-09"), qty=5, alpaca_order_id="o7")
+        close_trade(t3, exit_price=501.0, result="FORCED_CLOSE", pnl_dollars=5.0, pnl_percent=0.002)
+        pnl, wins, losses = get_all_realized_pnl()
+        assert pnl == 25.0
+        assert wins == 2   # WIN + profitable FORCED_CLOSE
+        assert losses == 1  # LOSS only
+
+    def test_pnl_percentage_of_initial_account(self, clean_db):
+        from src.config import INITIAL_ACCOUNT_VALUE
+        tid = save_trade_signal(_make_signal(), qty=10, alpaca_order_id="o8")
+        close_trade(tid, exit_price=504.0, result="WIN", pnl_dollars=1000.0, pnl_percent=0.02)
+        pnl, _, _ = get_all_realized_pnl()
+        pct = pnl / INITIAL_ACCOUNT_VALUE * 100
+        assert round(pct, 2) == 1.0  # $1000 on $100k = 1%
