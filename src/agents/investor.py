@@ -137,6 +137,7 @@ class Investor:
             return trade_id
         except Exception as e:
             logger.error(f"Agent 3: Order submission failed for {signal.symbol}: {e}")
+            self._telegram.log_error(f"❌ <b>Order failed</b> — {signal.symbol}: {e}")
             return None
 
     def record_skip(self, symbol: str, date: str, reason: str):
@@ -189,6 +190,7 @@ class Investor:
 
             except Exception as e:
                 logger.warning(f"Agent 3: Monitor error for {symbol}: {e}")
+                self._telegram.log_error(f"❌ <b>Position Monitor error</b> — {symbol}: {e}")
 
         for symbol in closed:
             del self._open_trades[symbol]
@@ -233,6 +235,7 @@ class Investor:
                     logger.info(f"Agent 3: {symbol} FORCED_CLOSE @ {exit_price} | P&L=${pnl_dollars:.2f}")
             except Exception as e:
                 logger.warning(f"Agent 3: Force close error for {symbol}: {e}")
+                self._telegram.log_error(f"❌ <b>Force Close failed</b> — {symbol}: {e}")
         self._open_trades.clear()
 
     def _determine_result(self, signal: TradeSignal, exit_price: float) -> str:
