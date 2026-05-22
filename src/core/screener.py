@@ -3,7 +3,7 @@ from datetime import datetime
 import pytz
 
 from src.data.alpaca_data import (
-    get_avg_volume_30d, calculate_atr14, get_beta, get_daily_candles,
+    get_avg_volume_30d, calculate_atr14, get_daily_candles,
 )
 from src.config import SCREENER_MIN_IEX_VOLUME
 
@@ -39,18 +39,13 @@ def passes_hard_filters(symbol: str, date: str) -> tuple[bool, dict]:
         if atr <= 0:
             return False, {}
         atr_pct = atr / current_price
-        if not (0.015 <= atr_pct <= 0.04):
-            return False, {}
-
-        beta = get_beta(symbol)
-        if not (0.8 <= beta <= 2.0):
+        if not (0.015 <= atr_pct <= 0.05):
             return False, {}
 
         return True, {
             "symbol": symbol,
             "avg_volume": avg_volume,
             "atr_pct": round(atr_pct, 4),
-            "beta": round(beta, 2),
         }
     except Exception as e:
         logger.warning(f"Screener hard filter error for {symbol}: {e}")
