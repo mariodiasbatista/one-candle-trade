@@ -201,23 +201,62 @@ class TestMonitorOpenPositions:
 
 
 class TestForceCloseAll:
-    def test_current_price_none_falls_back_to_avg_entry_price(self):
-        investor, client, _ = _make_investor()
+    def test_position_confirmed_closed_updates_db(self):
+        """close_all_positions is called; DB updated only after position disappears from Alpaca."""
+        investor, client, telegram = _make_investor()
         signal = _make_signal()  # entry=500.0
         investor._open_trades["SPY"] = {"trade_id": "t6", "order_id": "o6", "signal": signal, "qty": 10}
 
-        mock_pos = MagicMock()
-        mock_pos.symbol = "SPY"
-        mock_pos.current_price = None
-        mock_pos.avg_entry_price = "500.0"
-        mock_pos.qty = "10"
-        client.get_all_positions.return_value = [mock_pos]
+        # First poll: still open. Second poll: gone.
+        client.get_all_positions.side_effect = [
+            [MagicMock(symbol="SPY")],  # still open on first check
+            [],                          # gone on second check
+        ]
+        client.get_orders.return_value = []  # _find_exit_price falls back to entry
 
-        with patch("src.agents.investor.close_trade") as mock_close:
+        with patch("src.agents.investor.close_trade") as mock_close, \
+             patch("src.agents.investor.time.sleep"):
             investor.force_close_all()
 
-        args = mock_close.call_args[0]
-        assert args[1] == 500.0  # fell back to avg_entry_price, not crashed
+        client.close_all_positions.assert_called_once_with(cancel_orders=True)
+        mock_close.assert_called_once()
+        assert "SPY" not in investor._open_trades
+
+    def test_position_not_closed_stays_in_open_trades(self):
+        """If position never disappears after polling, leave in _open_trades (no orphan DB record)."""
+        investor, client, telegram = _make_investor()
+        signal = _make_signal()
+        investor._open_trades["SPY"] = {"trade_id": "t7", "order_id": "o7", "signal": signal, "qty": 10}
+
+        # Position never disappears during polling
+        client.get_all_positions.return_value = [MagicMock(symbol="SPY")]
+
+        with patch("src.agents.investor.close_trade") as mock_close, \
+             patch("src.agents.investor.time.sleep"):
+            investor.force_close_all()
+
+        mock_close.assert_not_called()
+        assert "SPY" in investor._open_trades  # stays for crash recovery
+        telegram.log_error.assert_called()
+
+    def test_empty_open_trades_is_noop(self):
+        investor, client, _ = _make_investor()
+        with patch("src.agents.investor.time.sleep"):
+            investor.force_close_all()
+        client.close_all_positions.assert_not_called()
+
+    def test_close_all_positions_failure_does_not_update_db(self):
+        investor, client, telegram = _make_investor()
+        signal = _make_signal()
+        investor._open_trades["SPY"] = {"trade_id": "t8", "order_id": "o8", "signal": signal, "qty": 10}
+        client.close_all_positions.side_effect = Exception("API error")
+
+        with patch("src.agents.investor.close_trade") as mock_close, \
+             patch("src.agents.investor.time.sleep"):
+            investor.force_close_all()
+
+        mock_close.assert_not_called()
+        telegram.log_error.assert_called()
 
 
 class TestDetermineResult:

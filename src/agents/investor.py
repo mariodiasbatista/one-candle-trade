@@ -1,6 +1,5 @@
 import logging
 import time
-from datetime import datetime
 from typing import Optional
 import pytz
 
@@ -30,9 +29,8 @@ class Investor:
         self._open_trades: dict[str, dict] = {}  # symbol → {trade_id, order_id, signal}
 
     def recover_open_trades(self):
-        """On startup, rebuild _open_trades from any PENDING DB records for today."""
-        today = datetime.now(ET).strftime("%Y-%m-%d")
-        pending = get_pending_trades(today)
+        """On startup, rebuild _open_trades from any PENDING DB records (any date)."""
+        pending = get_pending_trades()
         if not pending:
             return
 
@@ -196,40 +194,62 @@ class Investor:
             del self._open_trades[symbol]
 
     def force_close_all(self):
-        """Close all open positions at market price — called at 3:55 PM EST."""
-        for symbol, info in list(self._open_trades.items()):
-            try:
-                # Cancel ALL open orders (bracket TP/SL legs may not be filterable by symbol)
-                try:
-                    self._client.cancel_orders()
-                except Exception:
-                    pass
-                time.sleep(2.0)
+        """Close all open positions at market price — called at 3:55 PM EST.
 
-                # Get current price via account positions
-                positions = {p.symbol: p for p in self._client.get_all_positions()}
-                if symbol in positions:
-                    pos = positions[symbol]
-                    if not pos.current_price:
-                        logger.warning(f"Agent 3: {symbol} current_price unavailable, falling back to avg_entry_price for P&L estimate")
-                    exit_price = float(pos.current_price or pos.avg_entry_price)
-                    qty = abs(int(pos.qty))
-                    signal = info["signal"]
-                    side = OrderSide.SELL if signal.signal == "LONG" else OrderSide.BUY
-                    self._client.submit_order(MarketOrderRequest(
-                        symbol=symbol,
-                        qty=qty,
-                        side=side,
-                        time_in_force=TimeInForce.DAY,
-                    ))
-                    pnl_dollars = self._calculate_pnl(signal, signal.entry, exit_price, qty)
-                    pnl_pct = pnl_dollars / (signal.entry * qty) if signal.entry > 0 else 0.0
-                    close_trade(info["trade_id"], exit_price, "FORCED_CLOSE", pnl_dollars, round(pnl_pct, 4))
-                    logger.info(f"Agent 3: {symbol} FORCED_CLOSE @ {exit_price} | P&L=${pnl_dollars:.2f}")
+        Uses close_all_positions(cancel_orders=True) so Alpaca atomically cancels
+        bracket TP/SL child orders before submitting liquidation orders, avoiding the
+        "insufficient qty" race condition that occurs when cancelling then immediately
+        submitting separately.
+
+        DB is only updated after the position actually disappears from Alpaca, so
+        orders that expire unfilled (e.g. submitted after market close) don't leave
+        orphaned DB records.
+        """
+        if not self._open_trades:
+            return
+
+        symbols = list(self._open_trades.keys())
+        logger.info(f"Agent 3: Force close initiated for {symbols}")
+
+        try:
+            self._client.close_all_positions(cancel_orders=True)
+        except Exception as e:
+            logger.error(f"Agent 3: close_all_positions failed: {e}")
+            self._telegram.log_error(f"❌ <b>Force Close failed</b>: {e}")
+            return
+
+        # Poll up to 5× (15 s total) for fills — market is open so fills are near-instant
+        for attempt in range(5):
+            time.sleep(3.0)
+            try:
+                still_open = {p.symbol for p in self._client.get_all_positions()}
             except Exception as e:
-                logger.warning(f"Agent 3: Force close error for {symbol}: {e}")
-                self._telegram.log_error(f"❌ <b>Force Close failed</b> — {symbol}: {e}")
-        self._open_trades.clear()
+                logger.warning(f"Agent 3: Could not fetch positions during force-close poll: {e}")
+                still_open = set(symbols)  # assume still open on error
+
+            for symbol in list(self._open_trades.keys()):
+                if symbol not in still_open:
+                    info = self._open_trades.pop(symbol)
+                    signal = info["signal"]
+                    exit_price = self._find_exit_price(symbol, signal.entry)
+                    pnl_dollars = self._calculate_pnl(signal, signal.entry, exit_price, info["qty"])
+                    pnl_pct = pnl_dollars / (signal.entry * info["qty"]) if signal.entry > 0 else 0.0
+                    close_trade(info["trade_id"], exit_price, "FORCED_CLOSE", pnl_dollars, round(pnl_pct, 4))
+                    logger.info(f"Agent 3: {symbol} FORCED_CLOSE confirmed @ {exit_price} | P&L=${pnl_dollars:.2f}")
+                    self._telegram.send_result_notice(symbol, "FORCED_CLOSE", exit_price, pnl_dollars, pnl_pct)
+
+            if not self._open_trades:
+                break
+
+        # Positions still open after polling — market likely closed, orders will expire.
+        # Leave in _open_trades so crash recovery handles them on next restart.
+        if self._open_trades:
+            stuck = list(self._open_trades.keys())
+            logger.warning(f"Agent 3: Force close — positions not confirmed closed: {stuck}")
+            self._telegram.log_error(
+                f"⚠️ <b>Force Close</b> — positions not confirmed closed after 15s: {', '.join(stuck)}\n"
+                f"Close orders submitted; will recover on restart if needed."
+            )
 
     def _determine_result(self, signal: TradeSignal, exit_price: float) -> str:
         if signal.signal == "LONG":
