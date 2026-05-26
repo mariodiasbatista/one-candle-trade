@@ -199,19 +199,12 @@ class Investor:
         """Close all open positions at market price — called at 3:55 PM EST."""
         for symbol, info in list(self._open_trades.items()):
             try:
-                # Cancel all open orders for this symbol (entry + bracket TP/SL legs)
+                # Cancel ALL open orders (bracket TP/SL legs may not be filterable by symbol)
                 try:
-                    open_orders = self._client.get_orders(
-                        filter=GetOrdersRequest(symbols=[symbol], status=QueryOrderStatus.OPEN)
-                    )
-                    for order in open_orders:
-                        try:
-                            self._client.cancel_order_by_id(order.id)
-                        except Exception:
-                            pass
+                    self._client.cancel_orders()
                 except Exception:
                     pass
-                time.sleep(1.0)
+                time.sleep(2.0)
 
                 # Get current price via account positions
                 positions = {p.symbol: p for p in self._client.get_all_positions()}
