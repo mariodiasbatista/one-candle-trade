@@ -310,6 +310,20 @@ class TestDetermineResult:
         signal.stop_loss = 502.0
         assert investor._determine_result(signal, 499.0) == "FORCED_CLOSE"
 
+    def test_short_near_sl_slippage_is_loss(self):
+        # Real case: AMZN SHORT SL=272.29, fill=272.27 (2¢ slippage) → should be LOSS not FORCED_CLOSE
+        investor, _, _ = _make_investor()
+        signal = _make_signal(direction="SHORT")
+        signal.take_profit = 261.67
+        signal.stop_loss = 272.29
+        assert investor._determine_result(signal, 272.27) == "LOSS"
+
+    def test_long_near_tp_slippage_is_win(self):
+        # fill 4¢ below TP → still WIN
+        investor, _, _ = _make_investor()
+        signal = _make_signal()  # SL=498, TP=504
+        assert investor._determine_result(signal, 503.96) == "WIN"
+
 
 class TestCalculatePnl:
     def test_long_win_pnl(self):

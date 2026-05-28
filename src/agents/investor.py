@@ -253,16 +253,16 @@ class Investor:
 
     def _determine_result(self, signal: TradeSignal, exit_price: float) -> str:
         if signal.signal == "LONG":
-            if exit_price >= signal.take_profit - 0.01:
+            if exit_price >= signal.take_profit - 0.05:
                 return "WIN"
-            elif exit_price <= signal.stop_loss + 0.01:
+            elif exit_price <= signal.stop_loss + 0.05:
                 return "LOSS"
             else:
                 return "FORCED_CLOSE"
         else:
-            if exit_price <= signal.take_profit + 0.01:
+            if exit_price <= signal.take_profit + 0.05:
                 return "WIN"
-            elif exit_price >= signal.stop_loss - 0.01:
+            elif exit_price >= signal.stop_loss - 0.05:
                 return "LOSS"
             else:
                 return "FORCED_CLOSE"
