@@ -1,7 +1,16 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from src.agents.investor import Investor
-from alpaca.trading.enums import OrderStatus
+from alpaca.trading.enums import OrderStatus, OrderSide
+
+
+def _make_exit_order(fill_price: str, direction: str = "LONG"):
+    """Build a mock filled exit order for _find_exit_price."""
+    o = MagicMock()
+    o.status = OrderStatus.FILLED
+    o.filled_avg_price = fill_price
+    o.side = OrderSide.SELL if direction == "LONG" else OrderSide.BUY
+    return o
 
 
 def _make_investor():
@@ -57,9 +66,7 @@ class TestRecoverOpenTrades:
         investor, client, telegram = _make_investor()
         trade = _make_db_trade(entry=500.0, take_profit=504.0)
         client.get_all_positions.return_value = []
-        mock_order = MagicMock()
-        mock_order.filled_avg_price = "504.0"
-        client.get_order_by_id.return_value = mock_order
+        client.get_orders.return_value = [_make_exit_order("504.0", "LONG")]
         with patch("src.agents.investor.get_pending_trades", return_value=[trade]), \
              patch("src.agents.investor.close_trade") as mock_close:
             investor.recover_open_trades()
@@ -74,9 +81,7 @@ class TestRecoverOpenTrades:
         investor, client, telegram = _make_investor()
         trade = _make_db_trade(entry=500.0, take_profit=504.0, stop_loss=498.0)
         client.get_all_positions.return_value = []
-        mock_order = MagicMock()
-        mock_order.filled_avg_price = "497.0"
-        client.get_order_by_id.return_value = mock_order
+        client.get_orders.return_value = [_make_exit_order("497.0", "LONG")]
         with patch("src.agents.investor.get_pending_trades", return_value=[trade]), \
              patch("src.agents.investor.close_trade") as mock_close:
             investor.recover_open_trades()
@@ -87,7 +92,7 @@ class TestRecoverOpenTrades:
         investor, client, telegram = _make_investor()
         trade = _make_db_trade(entry=500.0)
         client.get_all_positions.return_value = []
-        client.get_order_by_id.side_effect = Exception("API error")
+        client.get_orders.side_effect = Exception("API error")
         with patch("src.agents.investor.get_pending_trades", return_value=[trade]), \
              patch("src.agents.investor.close_trade") as mock_close:
             investor.recover_open_trades()
@@ -126,9 +131,7 @@ class TestRecoverOpenTrades:
         investor, client, telegram = _make_investor()
         trade = _make_db_trade()
         client.get_all_positions.return_value = []
-        mock_order = MagicMock()
-        mock_order.filled_avg_price = "504.0"
-        client.get_order_by_id.return_value = mock_order
+        client.get_orders.return_value = [_make_exit_order("504.0", "LONG")]
         with patch("src.agents.investor.get_pending_trades", return_value=[trade]), \
              patch("src.agents.investor.close_trade"):
             investor.recover_open_trades()

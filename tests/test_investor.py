@@ -112,11 +112,13 @@ class TestMonitorOpenPositions:
         mock_pos.symbol = symbol
         client.get_all_positions.return_value = [mock_pos]
 
-    def _closed_order(self, client, fill_price: str):
+    def _closed_order(self, client, fill_price: str, direction: str = "LONG"):
         """Simulate _find_exit_price finding a filled order."""
+        from alpaca.trading.enums import OrderSide
         mock_order = MagicMock()
         mock_order.status = OrderStatus.FILLED
         mock_order.filled_avg_price = fill_price
+        mock_order.side = OrderSide.SELL if direction == "LONG" else OrderSide.BUY
         client.get_orders.return_value = [mock_order]
 
     def test_position_gone_closes_win(self):

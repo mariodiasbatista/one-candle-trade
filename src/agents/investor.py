@@ -56,13 +56,11 @@ class Investor:
                     logger.info(f"Agent 3: {trade.symbol} recovered — monitoring resumed")
                     self._telegram.log_info(f"🔄 <b>Crash Recovery</b> — {trade.symbol} open trade recovered, monitoring resumed")
                 else:
-                    # Position already closed while service was down — record result
-                    try:
-                        order = self._client.get_order_by_id(trade.alpaca_order_id)
-                        exit_price = float(order.filled_avg_price or trade.entry)
-                    except Exception:
-                        exit_price = trade.entry
+                    # Position already closed while service was down — record result.
+                    # Use _find_exit_price filtered by the correct side (sell for LONG,
+                    # buy for SHORT) so we don't accidentally return the entry fill price.
                     signal = self._signal_from_trade(trade)
+                    exit_price = self._find_exit_price(trade.symbol, trade.entry, trade.signal)
                     result = self._determine_result(signal, exit_price)
                     pnl = self._calculate_pnl(signal, trade.entry, exit_price, trade.qty)
                     pnl_pct = pnl / (trade.entry * trade.qty) if trade.entry > 0 else 0.0
@@ -142,16 +140,21 @@ class Investor:
         save_skip(symbol, date, reason)
         self._telegram.send_skip_notice(symbol, reason)
 
-    def _find_exit_price(self, symbol: str, fallback: float) -> float:
-        """Find actual exit fill price from recent closed orders on Alpaca."""
+    def _find_exit_price(self, symbol: str, fallback: float, direction: str = "LONG") -> float:
+        """Find actual exit fill price from recent closed orders on Alpaca.
+
+        Filters by side: LONG trades exit via a sell order; SHORT trades exit via a buy order.
+        Without this filter, the entry fill (wrong side) would be returned first.
+        """
+        want_side = OrderSide.SELL if direction == "LONG" else OrderSide.BUY
         try:
             orders = self._client.get_orders(filter=GetOrdersRequest(
                 status=QueryOrderStatus.CLOSED,
                 symbols=[symbol],
-                limit=5,
+                limit=10,
             ))
             for o in orders:
-                if o.status == OrderStatus.FILLED and o.filled_avg_price:
+                if o.status == OrderStatus.FILLED and o.filled_avg_price and o.side == want_side:
                     return float(o.filled_avg_price)
         except Exception:
             pass
@@ -171,7 +174,7 @@ class Investor:
                 if symbol not in open_symbols:
                     # Position no longer on Alpaca — bracket TP or SL fired
                     signal = info["signal"]
-                    exit_price = self._find_exit_price(symbol, signal.entry)
+                    exit_price = self._find_exit_price(symbol, signal.entry, signal.signal)
                     result = self._determine_result(signal, exit_price)
                     pnl_dollars = self._calculate_pnl(signal, signal.entry, exit_price, info["qty"])
                     pnl_pct = pnl_dollars / (signal.entry * info["qty"]) if signal.entry > 0 else 0.0
@@ -231,7 +234,7 @@ class Investor:
                 if symbol not in still_open:
                     info = self._open_trades.pop(symbol)
                     signal = info["signal"]
-                    exit_price = self._find_exit_price(symbol, signal.entry)
+                    exit_price = self._find_exit_price(symbol, signal.entry, signal.signal)
                     pnl_dollars = self._calculate_pnl(signal, signal.entry, exit_price, info["qty"])
                     pnl_pct = pnl_dollars / (signal.entry * info["qty"]) if signal.entry > 0 else 0.0
                     close_trade(info["trade_id"], exit_price, "FORCED_CLOSE", pnl_dollars, round(pnl_pct, 4))
