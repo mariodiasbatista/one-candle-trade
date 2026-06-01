@@ -84,11 +84,12 @@ def generate_daily_summary(
             today_plpc = pos.get("today_plpc", 0.0)
             stop       = pos.get("stop_loss")
 
+            direction = "LONG" if qty >= 0 else "SHORT"
             pl_icon  = "🟢" if total_pl >= 0 else "🔴"
             pl_sign  = "+" if total_pl >= 0 else ""
             td_sign  = "+" if today_pl >= 0 else ""
             stop_str = f"  Stop ${stop:.2f}" if stop else ""
-            lines.append(f"{sym} {qty}sh @ ${entry:.2f} → ${cur:.2f}")
+            lines.append(f"{sym} {direction} {abs(qty)}sh @ ${entry:.2f} → ${cur:.2f}")
             lines.append(
                 f"  {pl_icon} Total {pl_sign}${total_pl:.2f} ({pl_sign}{total_plpc:.1%})"
                 f"  Today {td_sign}${today_pl:.2f} ({td_sign}{today_plpc:.1%}){stop_str}"
