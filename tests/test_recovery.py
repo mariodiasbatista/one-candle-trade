@@ -106,6 +106,21 @@ class TestRecoverOpenTrades:
         with patch("src.agents.investor.get_pending_trades", return_value=[trade]):
             investor.recover_open_trades()  # should not raise
 
+    def test_per_trade_exception_logs_error_and_continues(self):
+        """If close_trade raises for one symbol, log the error and continue with others."""
+        investor, client, telegram = _make_investor()
+        trade1 = _make_db_trade(symbol="SPY", trade_id="t1", order_id="o1")
+        trade2 = _make_db_trade(symbol="AAPL", trade_id="t2", order_id="o2")
+        client.get_all_positions.return_value = []
+        client.get_orders.return_value = [_make_exit_order("504.0", "LONG")]
+
+        with patch("src.agents.investor.get_pending_trades", return_value=[trade1, trade2]), \
+             patch("src.agents.investor.close_trade", side_effect=Exception("DB error")) as mock_close:
+            investor.recover_open_trades()  # should not raise
+
+        telegram.log_error.assert_called()
+        assert mock_close.call_count >= 1
+
     def test_multiple_pending_trades_all_recovered(self):
         investor, client, telegram = _make_investor()
         trade1 = _make_db_trade(symbol="SPY", trade_id="t1", order_id="o1")

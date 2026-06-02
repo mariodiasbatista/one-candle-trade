@@ -140,3 +140,100 @@ class TestGenerateYearlySummary:
         result = generate_yearly_summary(2026, account_value=101_500.0, initial_account=100_000.0)
         assert "Best month" in result
         assert "Worst" in result
+
+
+class TestOpenPositions:
+    def _make_pos(self, symbol="SPY", qty=10, entry=500.0, current=505.0,
+                  total_pl=50.0, total_plpc=0.01, today_pl=50.0, today_plpc=0.01,
+                  stop_loss=None):
+        return dict(symbol=symbol, qty=qty, entry=entry, current=current,
+                    total_pl=total_pl, total_plpc=total_plpc,
+                    today_pl=today_pl, today_plpc=today_plpc, stop_loss=stop_loss)
+
+    def test_long_position_shows_long_label(self, clean_db):
+        pos = self._make_pos(qty=10)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        open_positions=[pos])
+        assert "SPY LONG 10sh" in result
+
+    def test_short_position_shows_short_label(self, clean_db):
+        pos = self._make_pos(qty=-10, total_pl=30.0, today_pl=30.0)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        open_positions=[pos])
+        assert "SPY SHORT 10sh" in result
+
+    def test_short_qty_shown_as_positive(self, clean_db):
+        pos = self._make_pos(qty=-15, total_pl=10.0, today_pl=10.0)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        open_positions=[pos])
+        assert "15sh" in result
+        assert "-15sh" not in result
+
+    def test_profitable_position_shows_green_icon(self, clean_db):
+        pos = self._make_pos(total_pl=50.0, today_pl=50.0)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        open_positions=[pos])
+        assert "🟢" in result
+
+    def test_losing_position_shows_red_icon(self, clean_db):
+        pos = self._make_pos(total_pl=-30.0, today_pl=-30.0)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        open_positions=[pos])
+        assert "🔴" in result
+
+    def test_stop_loss_shown_when_present(self, clean_db):
+        pos = self._make_pos(stop_loss=495.0)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        open_positions=[pos])
+        assert "Stop $495.00" in result
+
+    def test_no_stop_loss_omitted(self, clean_db):
+        pos = self._make_pos(stop_loss=None)
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        open_positions=[pos])
+        assert "Stop" not in result
+
+    def test_multiple_positions_all_shown(self, clean_db):
+        positions = [
+            self._make_pos("SPY", qty=10),
+            self._make_pos("QQQ", qty=-5, total_pl=20.0, today_pl=20.0),
+        ]
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        open_positions=positions)
+        assert "SPY LONG" in result
+        assert "QQQ SHORT" in result
+        assert "2 open" in result
+
+    def test_cash_and_buying_power_shown_when_provided(self, clean_db):
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        cash=80_000.0, buying_power=320_000.0)
+        assert "Cash:" in result
+        assert "80,000.00" in result
+        assert "Buying Power:" in result
+        assert "320,000.00" in result
+
+    def test_cash_and_buying_power_omitted_when_zero(self, clean_db):
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0,
+                                        cash=0.0, buying_power=0.0)
+        assert "Cash:" not in result
+        assert "Buying Power:" not in result
+
+
+class TestStocksSection:
+    def test_monitored_skip_shows_magnifier(self, clean_db):
+        save_skip("SPY", "2026-05-07", "No valid signal by 10:30 AM cutoff")
+        result = generate_daily_summary("2026-05-07", account_value=100_000.0)
+        assert "🔍 SPY" in result
+
+    def test_watchlist_symbol_not_in_db_shows_monitoring(self, clean_db):
+        from unittest.mock import patch
+        with patch("src.reporting.summary.get_active_watchlist", return_value=["AAPL"]):
+            result = generate_daily_summary("2026-05-07", account_value=100_000.0)
+        assert "🔄 AAPL" in result
+
+    def test_same_symbol_not_duplicated(self, clean_db):
+        save_skip("SPY", "2026-05-07", "No valid signal by 10:30 AM cutoff")
+        from unittest.mock import patch
+        with patch("src.reporting.summary.get_active_watchlist", return_value=["SPY"]):
+            result = generate_daily_summary("2026-05-07", account_value=100_000.0)
+        assert result.count("SPY") == 1

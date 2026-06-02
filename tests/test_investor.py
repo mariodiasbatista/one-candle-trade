@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 from src.agents.investor import Investor
 from src.models import TradeSignal
-from alpaca.trading.enums import OrderStatus
+from alpaca.trading.enums import OrderStatus, OrderSide
 
 
 def _make_signal(symbol="SPY", direction="LONG"):
@@ -259,6 +259,110 @@ class TestForceCloseAll:
 
         mock_close.assert_not_called()
         telegram.log_error.assert_called()
+
+    def test_get_positions_error_during_poll_assumes_still_open(self):
+        """If get_all_positions fails during polling, assume still open and keep trying."""
+        investor, client, telegram = _make_investor()
+        signal = _make_signal()
+        investor._open_trades["SPY"] = {"trade_id": "t9", "order_id": "o9", "signal": signal, "qty": 10}
+
+        # First call (close_all_positions itself succeeds), but poll raises
+        client.get_all_positions.side_effect = Exception("connection error")
+
+        with patch("src.agents.investor.close_trade") as mock_close, \
+             patch("src.agents.investor.time.sleep"):
+            investor.force_close_all()
+
+        mock_close.assert_not_called()
+        assert "SPY" in investor._open_trades
+
+
+class TestRecordSkip:
+    def test_record_skip_saves_and_notifies(self):
+        investor, _, telegram = _make_investor()
+        with patch("src.agents.investor.save_skip") as mock_save:
+            investor.record_skip("SPY", "2026-05-07", "Gap too large")
+        mock_save.assert_called_once_with("SPY", "2026-05-07", "Gap too large")
+        telegram.send_skip_notice.assert_called_once_with("SPY", "Gap too large")
+
+
+class TestMonitorExceptionPerSymbol:
+    def test_per_symbol_exception_sends_telegram_error(self):
+        """An exception processing one symbol should not crash the whole monitor run."""
+        investor, client, telegram = _make_investor()
+        signal = _make_signal()
+        investor._open_trades["SPY"] = {"trade_id": "t10", "order_id": "o10", "signal": signal, "qty": 10}
+
+        # Position is gone but close_trade raises — should log error, not crash
+        client.get_all_positions.return_value = []
+        client.get_orders.return_value = []  # fallback to entry price
+
+        with patch("src.agents.investor.close_trade", side_effect=Exception("DB error")):
+            investor.monitor_open_positions()  # should not raise
+
+        telegram.log_error.assert_called()
+
+
+class TestFindExitPriceSideFilter:
+    def test_long_ignores_buy_side_fill(self):
+        """A buy-side fill (entry) must not be returned as exit price for a LONG."""
+        investor, client, _ = _make_investor()
+        buy_order = MagicMock()
+        buy_order.status = OrderStatus.FILLED
+        buy_order.filled_avg_price = "500.0"
+        buy_order.side = OrderSide.BUY
+        client.get_orders.return_value = [buy_order]
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="LONG")
+        assert price == 123.0  # buy fill ignored, falls back
+
+    def test_long_returns_sell_side_fill(self):
+        """A sell-side fill must be returned as exit price for a LONG."""
+        investor, client, _ = _make_investor()
+        sell_order = MagicMock()
+        sell_order.status = OrderStatus.FILLED
+        sell_order.filled_avg_price = "510.0"
+        sell_order.side = OrderSide.SELL
+        client.get_orders.return_value = [sell_order]
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="LONG")
+        assert price == 510.0
+
+    def test_short_ignores_sell_side_fill(self):
+        """A sell-side fill (entry) must not be returned as exit price for a SHORT."""
+        investor, client, _ = _make_investor()
+        sell_order = MagicMock()
+        sell_order.status = OrderStatus.FILLED
+        sell_order.filled_avg_price = "500.0"
+        sell_order.side = OrderSide.SELL
+        client.get_orders.return_value = [sell_order]
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="SHORT")
+        assert price == 123.0  # sell fill ignored, falls back
+
+    def test_short_returns_buy_side_fill(self):
+        """A buy-side fill (cover) must be returned as exit price for a SHORT."""
+        investor, client, _ = _make_investor()
+        buy_order = MagicMock()
+        buy_order.status = OrderStatus.FILLED
+        buy_order.filled_avg_price = "490.0"
+        buy_order.side = OrderSide.BUY
+        client.get_orders.return_value = [buy_order]
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="SHORT")
+        assert price == 490.0
+
+    def test_skips_unfilled_orders(self):
+        """Orders that are not FILLED must be skipped regardless of side."""
+        investor, client, _ = _make_investor()
+        canceled_order = MagicMock()
+        canceled_order.status = OrderStatus.CANCELED
+        canceled_order.filled_avg_price = "500.0"
+        canceled_order.side = OrderSide.SELL
+        client.get_orders.return_value = [canceled_order]
+
+        price = investor._find_exit_price("SPY", fallback=999.0, direction="LONG")
+        assert price == 999.0
 
 
 class TestDetermineResult:
