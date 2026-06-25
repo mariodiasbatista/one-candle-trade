@@ -169,7 +169,7 @@ class Investor:
             logger.warning(f"Agent 3: Could not fetch positions: {e}")
             return
 
-        for symbol, info in self._open_trades.items():
+        for symbol, info in list(self._open_trades.items()):
             try:
                 if symbol not in open_symbols:
                     # Position no longer on Alpaca — bracket TP or SL fired
