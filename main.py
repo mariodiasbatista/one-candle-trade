@@ -156,9 +156,8 @@ def job_monitor_fvg():
                 continue
             signal = analyst.analyze(ctx)
             if signal:
-                trade_id = investor.execute_signal(signal)
-                if trade_id:
-                    _signals_fired.add(symbol)
+                _signals_fired.add(symbol)
+                investor.execute_signal(signal)
             else:
                 fvg_status = f"FVG={ctx.fvg.direction}" if ctx.fvg else "no FVG"
                 vol_status = f"vol={ctx.volume_ratio:.1f}x" if ctx.volume_ratio else ""
