@@ -445,6 +445,17 @@ if __name__ == "__main__":
     investor.recover_open_trades()
     logger.info("Crash recovery check complete")
 
+    # Seed _signals_fired from today's DB trades so a mid-morning restart
+    # doesn't re-fire signals for symbols already acted on today.
+    from src.db.repository import get_trades_for_date
+    _today = datetime.now(ET).strftime("%Y-%m-%d")
+    _signals_fired = {
+        t.symbol for t in get_trades_for_date(_today)
+        if t.result not in ("SKIP", "CANCELLED")
+    }
+    if _signals_fired:
+        logger.info(f"Signals fired today (restored from DB): {sorted(_signals_fired)}")
+
     scheduler = build_scheduler()
     logger.info("Scheduler configured — jobs:")
     for job in scheduler.get_jobs():
