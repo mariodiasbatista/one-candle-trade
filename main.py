@@ -196,6 +196,24 @@ def job_force_close():
         telegram.log_error(f"❌ <b>Force Close</b> failed: {e}")
 
 
+def job_eod_cleanup():
+    """4:00 PM EST — final position check after force close window closes.
+
+    Catches fills that arrived after the 60s force-close polling window
+    but before market close, so crash recovery isn't needed next morning.
+    """
+    if not investor._open_trades:
+        return
+    logger.info("=== EOD CLEANUP ===")
+    try:
+        investor.monitor_open_positions()
+        if investor._open_trades:
+            stuck = list(investor._open_trades.keys())
+            logger.warning(f"EOD cleanup — still unconfirmed: {stuck}")
+    except Exception as e:
+        logger.error(f"EOD cleanup error: {e}")
+
+
 def _build_open_positions():
     """Fetch Alpaca positions and enrich with DB stop_loss."""
     from src.db.repository import get_trades_for_date
@@ -292,6 +310,9 @@ def build_scheduler() -> BackgroundScheduler:
 
     # Force close — 3:55 PM ET Mon–Fri
     sched.add_job(job_force_close, cron(hour=15, minute=55))
+
+    # EOD cleanup — 4:00 PM ET Mon–Fri (catches fills missed by 60s force-close window)
+    sched.add_job(job_eod_cleanup, cron(hour=16, minute=0))
 
     # Daily summary — 4:05 PM ET Mon–Fri
     sched.add_job(job_daily_summary, cron(hour=16, minute=5))

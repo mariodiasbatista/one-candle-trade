@@ -221,8 +221,8 @@ class Investor:
             self._telegram.log_error(f"❌ <b>Force Close failed</b>: {e}")
             return
 
-        # Poll up to 5× (15 s total) for fills — market is open so fills are near-instant
-        for attempt in range(5):
+        # Poll up to 20× (60 s total) for fills — paper trading fills can lag several seconds
+        for attempt in range(20):
             time.sleep(3.0)
             try:
                 still_open = {p.symbol for p in self._client.get_all_positions()}
@@ -250,7 +250,7 @@ class Investor:
             stuck = list(self._open_trades.keys())
             logger.warning(f"Agent 3: Force close — positions not confirmed closed: {stuck}")
             self._telegram.log_error(
-                f"⚠️ <b>Force Close</b> — positions not confirmed closed after 15s: {', '.join(stuck)}\n"
+                f"⚠️ <b>Force Close</b> — positions not confirmed closed after 60s: {', '.join(stuck)}\n"
                 f"Close orders submitted; will recover on restart if needed."
             )
 
