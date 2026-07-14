@@ -3,8 +3,6 @@ from src.core.risk import calculate_stop_loss, calculate_take_profit, calculate_
 from src.models import FVGResult
 from tests.conftest import make_candle
 
-# Option A threshold: fvg_size >= 0.30 * candle_range
-
 
 def _make_fvg(gap_low, gap_high, gap_size=None):
     return FVGResult(
@@ -17,25 +15,23 @@ def _make_fvg(gap_low, gap_high, gap_size=None):
 
 
 class TestCalculateStopLoss:
-    def test_long_option_a_fvg_based(self):
-        # candle_range=2.0, fvg_size=0.8 → 0.8 >= 0.3*2.0=0.6 → Option A
-        candle = make_candle(99, 100.0, 98.0, 99.5)  # range=2.0
-        fvg = _make_fvg(gap_low=100.2, gap_high=100.9, gap_size=0.7)
+    def test_long_stop_below_fvg_gap(self):
+        candle = make_candle(99, 100.0, 98.0, 99.5)
+        fvg = _make_fvg(gap_low=100.2, gap_high=100.9)
         stop, stop_type = calculate_stop_loss("LONG", candle, fvg)
         assert stop == round(100.2 - 0.02, 2)
         assert "Option A" in stop_type
 
-    def test_long_option_b_first_candle(self):
-        # candle_range=2.0, fvg_size=0.3 → 0.3 < 0.6 → Option B
-        candle = make_candle(99, 100.0, 98.0, 99.5)  # low=98.0
-        fvg = _make_fvg(gap_low=100.2, gap_high=100.5, gap_size=0.3)
+    def test_long_stop_always_fvg_regardless_of_gap_size(self):
+        # Even a tiny gap uses Option A — no threshold fallback
+        candle = make_candle(99, 100.0, 98.0, 99.5)
+        fvg = _make_fvg(gap_low=100.2, gap_high=100.25, gap_size=0.05)
         stop, stop_type = calculate_stop_loss("LONG", candle, fvg)
-        assert stop == round(98.0 - 0.02, 2)
-        assert "Option B" in stop_type
+        assert stop == round(100.2 - 0.02, 2)
+        assert "Option A" in stop_type
 
-    def test_short_option_a_fvg_based(self):
-        # SHORT: stop = gap_high + 0.02 when Option A applies
-        candle = make_candle(97, 97.5, 95.5, 96.5)  # range=2.0
+    def test_short_stop_above_fvg_gap(self):
+        candle = make_candle(97, 97.5, 95.5, 96.5)
         fvg = FVGResult(
             direction="BEARISH_FVG_BREAK_LOW",
             gap_high=96.8, gap_low=95.4, gap_size=1.4, body_ratio=2.0,
@@ -44,23 +40,22 @@ class TestCalculateStopLoss:
         assert stop == round(96.8 + 0.02, 2)
         assert "Option A" in stop_type
 
-    def test_short_option_b_first_candle(self):
-        # candle_range=2.0, fvg_size=0.1 → 0.1 < 0.6 → Option B, SHORT stop = high + 0.02
-        candle = make_candle(97, 97.5, 95.5, 96.5)  # high=97.5
+    def test_short_stop_always_fvg_regardless_of_gap_size(self):
+        # Even a tiny gap uses Option A — no threshold fallback
+        candle = make_candle(97, 97.5, 95.5, 96.5)
         fvg = FVGResult(
             direction="BEARISH_FVG_BREAK_LOW",
-            gap_high=96.8, gap_low=96.7, gap_size=0.1, body_ratio=2.0,
+            gap_high=96.8, gap_low=96.75, gap_size=0.05, body_ratio=2.0,
         )
         stop, stop_type = calculate_stop_loss("SHORT", candle, fvg)
-        assert stop == round(97.5 + 0.02, 2)
-        assert "Option B" in stop_type
+        assert stop == round(96.8 + 0.02, 2)
+        assert "Option A" in stop_type
 
-    def test_zero_candle_range_uses_option_b(self):
-        # candle_range=0 → option B fallback
-        candle = make_candle(100, 100, 100, 100)  # range=0
-        fvg = _make_fvg(gap_low=100.2, gap_high=100.5, gap_size=0.3)
-        stop, stop_type = calculate_stop_loss("LONG", candle, fvg)
-        assert "Option B" in stop_type
+    def test_stop_type_label_is_option_a(self):
+        candle = make_candle(100, 100, 100, 100)
+        fvg = _make_fvg(gap_low=100.2, gap_high=100.5)
+        _, stop_type = calculate_stop_loss("LONG", candle, fvg)
+        assert stop_type == "Option A (FVG-based)"
 
 
 class TestCalculateTakeProfit:
