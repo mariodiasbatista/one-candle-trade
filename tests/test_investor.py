@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch, PropertyMock
 from src.agents.investor import Investor
 from src.models import TradeSignal
-from alpaca.trading.enums import OrderStatus, OrderSide
+from alpaca.trading.enums import OrderStatus, OrderSide, OrderType
 
 
 def _make_signal(symbol="SPY", direction="LONG"):
@@ -363,6 +363,102 @@ class TestFindExitPriceSideFilter:
 
         price = investor._find_exit_price("SPY", fallback=999.0, direction="LONG")
         assert price == 999.0
+
+
+class TestFindExitPriceOrderLineage:
+    """Exit price must be resolved from the trade's OWN bracket order when possible.
+
+    Regression cover for the 2026-07 duplicate-process incident: with two real
+    positions open on the same symbol, the symbol+side scan returned whichever
+    fill was most recent — the wrong order's — corrupting 13 of 59 trades.
+    """
+
+    @staticmethod
+    def _leg(status, price, order_type=OrderType.LIMIT):
+        leg = MagicMock()
+        leg.status = status
+        leg.filled_avg_price = price
+        leg.order_type = order_type
+        return leg
+
+    def test_uses_filled_tp_leg_of_own_order(self):
+        investor, client, _ = _make_investor()
+        order = MagicMock()
+        order.legs = [
+            self._leg(OrderStatus.FILLED, "510.0", OrderType.LIMIT),
+            self._leg(OrderStatus.CANCELED, None, OrderType.STOP),
+        ]
+        client.get_order_by_id.return_value = order
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="LONG", order_id="abc")
+        assert price == 510.0
+        client.get_orders.assert_not_called()  # never falls back to the symbol scan
+
+    def test_uses_filled_sl_leg_of_own_order(self):
+        investor, client, _ = _make_investor()
+        order = MagicMock()
+        order.legs = [
+            self._leg(OrderStatus.CANCELED, None, OrderType.LIMIT),
+            self._leg(OrderStatus.FILLED, "495.0", OrderType.STOP),
+        ]
+        client.get_order_by_id.return_value = order
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="LONG", order_id="abc")
+        assert price == 495.0
+
+    def test_ignores_other_orders_fill_on_same_symbol(self):
+        """The duplicate-process bug: a second order's fill must not be used."""
+        investor, client, _ = _make_investor()
+        own_order = MagicMock()
+        own_order.legs = [self._leg(OrderStatus.FILLED, "510.0", OrderType.LIMIT)]
+        client.get_order_by_id.return_value = own_order
+
+        # A different, more recent fill on the same symbol from a duplicate position.
+        other = MagicMock()
+        other.status = OrderStatus.FILLED
+        other.filled_avg_price = "471.11"
+        other.side = OrderSide.SELL
+        client.get_orders.return_value = [other]
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="LONG", order_id="abc")
+        assert price == 510.0  # own order wins, not the duplicate's 471.11
+
+    def test_falls_back_to_symbol_scan_when_no_leg_filled(self):
+        """Force-close case: bracket legs cancelled, exit is a separate order."""
+        investor, client, _ = _make_investor()
+        order = MagicMock()
+        order.legs = [
+            self._leg(OrderStatus.CANCELED, None, OrderType.LIMIT),
+            self._leg(OrderStatus.CANCELED, None, OrderType.STOP),
+        ]
+        client.get_order_by_id.return_value = order
+
+        liquidation = MagicMock()
+        liquidation.status = OrderStatus.FILLED
+        liquidation.filled_avg_price = "480.0"
+        liquidation.side = OrderSide.SELL
+        client.get_orders.return_value = [liquidation]
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="LONG", order_id="abc")
+        assert price == 480.0
+
+    def test_falls_back_when_order_lookup_raises(self):
+        investor, client, _ = _make_investor()
+        client.get_order_by_id.side_effect = Exception("API down")
+        client.get_orders.return_value = []
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="LONG", order_id="abc")
+        assert price == 123.0
+
+    def test_order_without_legs_falls_back(self):
+        investor, client, _ = _make_investor()
+        order = MagicMock()
+        order.legs = None
+        client.get_order_by_id.return_value = order
+        client.get_orders.return_value = []
+
+        price = investor._find_exit_price("SPY", fallback=123.0, direction="LONG", order_id="abc")
+        assert price == 123.0
 
 
 class TestDetermineResult:

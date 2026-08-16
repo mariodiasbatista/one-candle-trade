@@ -60,7 +60,9 @@ class Investor:
                     # Use _find_exit_price filtered by the correct side (sell for LONG,
                     # buy for SHORT) so we don't accidentally return the entry fill price.
                     signal = self._signal_from_trade(trade)
-                    exit_price = self._find_exit_price(trade.symbol, trade.entry, trade.signal)
+                    exit_price = self._find_exit_price(
+                        trade.symbol, trade.entry, trade.signal, order_id=trade.alpaca_order_id
+                    )
                     result = self._determine_result(signal, exit_price)
                     pnl = self._calculate_pnl(signal, trade.entry, exit_price, trade.qty)
                     pnl_pct = pnl / (trade.entry * trade.qty) if trade.entry > 0 else 0.0
@@ -140,12 +142,33 @@ class Investor:
         save_skip(symbol, date, reason)
         self._telegram.send_skip_notice(symbol, reason)
 
-    def _find_exit_price(self, symbol: str, fallback: float, direction: str = "LONG") -> float:
-        """Find actual exit fill price from recent closed orders on Alpaca.
+    def _find_exit_price(
+        self, symbol: str, fallback: float, direction: str = "LONG", order_id: Optional[str] = None
+    ) -> float:
+        """Find the actual exit fill price for THIS trade.
 
-        Filters by side: LONG trades exit via a sell order; SHORT trades exit via a buy order.
-        Without this filter, the entry fill (wrong side) would be returned first.
+        Preferred path — resolve by order lineage: fetch the trade's own bracket order
+        by id and read whichever child leg (TP limit or SL stop) actually filled. This
+        ties the exit to one specific order, so a second position open on the same
+        symbol cannot leak its fill into this trade's result.
+
+        Fallback — scan recent closed orders by symbol+side. Used when the exit did not
+        come from a bracket leg (e.g. a force-close liquidation, which is a separate
+        simple order). Filters by side because LONG exits via sell and SHORT via buy;
+        without it the entry fill would be returned first. This path cannot distinguish
+        between concurrent positions on the same symbol — see the 2026-07 duplicate
+        process incident, where it silently attributed the wrong order's fill to 13 of
+        59 trades.
         """
+        if order_id:
+            try:
+                order = self._client.get_order_by_id(order_id)
+                for leg in (order.legs or []):
+                    if leg.status == OrderStatus.FILLED and leg.filled_avg_price:
+                        return float(leg.filled_avg_price)
+            except Exception as e:
+                logger.warning(f"Agent 3: Could not resolve exit via order {order_id}: {e}")
+
         want_side = OrderSide.SELL if direction == "LONG" else OrderSide.BUY
         try:
             orders = self._client.get_orders(filter=GetOrdersRequest(
@@ -174,7 +197,9 @@ class Investor:
                 if symbol not in open_symbols:
                     # Position no longer on Alpaca — bracket TP or SL fired
                     signal = info["signal"]
-                    exit_price = self._find_exit_price(symbol, signal.entry, signal.signal)
+                    exit_price = self._find_exit_price(
+                        symbol, signal.entry, signal.signal, order_id=info["order_id"]
+                    )
                     result = self._determine_result(signal, exit_price)
                     pnl_dollars = self._calculate_pnl(signal, signal.entry, exit_price, info["qty"])
                     pnl_pct = pnl_dollars / (signal.entry * info["qty"]) if signal.entry > 0 else 0.0
@@ -234,6 +259,9 @@ class Investor:
                 if symbol not in still_open:
                     info = self._open_trades.pop(symbol)
                     signal = info["signal"]
+                    # No order_id here on purpose: close_all_positions(cancel_orders=True)
+                    # cancels the bracket legs, so the exit is a separate liquidation order
+                    # that must be found via the symbol+side scan.
                     exit_price = self._find_exit_price(symbol, signal.entry, signal.signal)
                     pnl_dollars = self._calculate_pnl(signal, signal.entry, exit_price, info["qty"])
                     pnl_pct = pnl_dollars / (signal.entry * info["qty"]) if signal.entry > 0 else 0.0
