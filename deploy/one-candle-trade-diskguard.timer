@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly disk guard for One Candle Trade host
+
+[Timer]
+# Sunday 03:00 — outside market hours, so cache pruning never competes with
+# the bot for I/O during a session.
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,27 @@
+# Log rotation for One Candle Trade.
+#
+# This file is read in place by one-candle-trade-logrotate.timer (hourly).
+# Do NOT copy it into /etc/logrotate.d/ — the system-wide daily logrotate run
+# scans that directory with a separate state file and would double-rotate.
+#
+# copytruncate is REQUIRED, not a style choice. The systemd unit uses
+# StandardOutput=append:, so systemd opens main.log once at service start and
+# holds that file descriptor. Renaming the file (logrotate's default) would
+# leave the bot writing into the renamed inode forever and the new main.log
+# would stay empty. copytruncate copies then truncates in place, so the open
+# fd keeps working and no restart is needed.
+
+/var/projects/one-candle-trade/logs/main.log {
+    daily
+    rotate 14
+    maxsize 50M
+    copytruncate
+    compress
+    delaycompress
+    missingok
+    notifempty
+    dateext
+    dateformat -%Y%m%d
+    olddir /var/projects/one-candle-trade/logs/archive
+    createolddir
+}

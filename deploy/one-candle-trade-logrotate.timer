@@ -1,0 +1,13 @@
+[Unit]
+Description=Hourly log rotation check for One Candle Trade
+
+[Timer]
+# The system logrotate.timer only fires daily, so `maxsize 50M` would not be
+# evaluated until midnight. An error burst (the Conflict storm wrote ~5k
+# tracebacks/day) can add hundreds of MB before then, so check hourly.
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

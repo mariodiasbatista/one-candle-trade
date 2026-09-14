@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly log rotation check for One Candle Trade
+Documentation=man:logrotate(8)
+
+[Service]
+Type=oneshot
+# The config deliberately lives in the repo, NOT in /etc/logrotate.d/. The
+# system-wide logrotate.timer scans that directory daily with its own state
+# file; if the config lived there too, this timer and the system run would
+# rotate the same log independently and double-rotate it. This timer is the
+# single owner, with its own state file.
+ExecStart=/usr/sbin/logrotate --state /var/lib/logrotate/one-candle-trade.status /var/projects/one-candle-trade/deploy/logrotate-one-candle-trade
