@@ -115,3 +115,29 @@ class TelegramReporter:
 
     def send_no_signal_cutoff(self, symbol: str):
         _send(f"[Agent 1] <b>{symbol}</b> — 10:30 AM cutoff reached. No trade today.")
+
+
+def send_system_alert(text: str) -> bool:
+    """Send an infrastructure alert, bypassing the /setlevel log gating.
+
+    Used by deploy/disk-guard.sh. This is deliberately not routed through
+    TelegramReporter.log(): /setlevel controls how chatty the *trading* log is,
+    and someone who set it to OFF still needs to hear that the disk is nearly
+    full. On 2026-09-14 the root filesystem filled to 98% over four months with
+    nothing reporting it; the warning existed only in a log file nobody read.
+
+    Returns True if the message was handed to Telegram.
+    """
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.warning(f"Telegram not configured — system alert dropped: {text}")
+        return False
+    try:
+        resp = requests.post(f"{BASE_URL}/sendMessage", json={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": f"🚨 <b>System alert</b>\n\n{html.escape(text)}",
+            "parse_mode": "HTML",
+        }, timeout=10)
+        return resp.ok
+    except Exception as e:
+        logger.warning(f"Telegram system alert failed: {e}")
+        return False

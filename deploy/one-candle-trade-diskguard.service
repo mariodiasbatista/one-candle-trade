@@ -1,5 +1,5 @@
 [Unit]
-Description=Weekly disk guard for One Candle Trade host
+Description=Daily disk guard for One Candle Trade host
 
 [Service]
 Type=oneshot

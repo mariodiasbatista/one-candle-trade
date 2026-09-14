@@ -145,3 +145,59 @@ class TestLog:
         with patch("src.reporting.telegram._send") as mock_send:
             r.log_error("err")
             assert mock_send.call_count == 0
+
+
+class TestSystemAlert:
+    """Disk alerts must not be gated by /setlevel. The 2026-09-14 disk fill went
+    unnoticed for four months because the only warning went to a log file."""
+
+    def test_sends_even_when_log_level_is_off(self):
+        from src.reporting import telegram as tg
+        r = tg.TelegramReporter()
+        r.set_level(LOG_OFF)
+        with patch.object(tg, "TELEGRAM_BOT_TOKEN", "t"), \
+             patch.object(tg, "TELEGRAM_CHAT_ID", "c"), \
+             patch.object(tg, "requests") as mock_req:
+            mock_req.post.return_value.ok = True
+            assert tg.send_system_alert("disk 91% full") is True
+        assert mock_req.post.call_count == 1
+
+    def test_message_contains_the_alert_text(self):
+        from src.reporting import telegram as tg
+        with patch.object(tg, "TELEGRAM_BOT_TOKEN", "t"), \
+             patch.object(tg, "TELEGRAM_CHAT_ID", "c"), \
+             patch.object(tg, "requests") as mock_req:
+            mock_req.post.return_value.ok = True
+            tg.send_system_alert("disk 91% full")
+        sent = mock_req.post.call_args.kwargs["json"]["text"]
+        assert "disk 91% full" in sent
+        assert "System alert" in sent
+
+    def test_returns_false_when_not_configured(self):
+        from src.reporting import telegram as tg
+        with patch.object(tg, "TELEGRAM_BOT_TOKEN", ""), \
+             patch.object(tg, "TELEGRAM_CHAT_ID", ""), \
+             patch.object(tg, "requests") as mock_req:
+            assert tg.send_system_alert("disk full") is False
+        assert mock_req.post.call_count == 0
+
+    def test_network_failure_returns_false_and_does_not_raise(self):
+        from src.reporting import telegram as tg
+        with patch.object(tg, "TELEGRAM_BOT_TOKEN", "t"), \
+             patch.object(tg, "TELEGRAM_CHAT_ID", "c"), \
+             patch.object(tg, "requests") as mock_req:
+            mock_req.post.side_effect = Exception("network down")
+            # The guard runs unattended from a timer; a failed alert must never
+            # abort the cleanup that frees the disk.
+            assert tg.send_system_alert("disk full") is False
+
+    def test_html_in_alert_text_is_escaped(self):
+        from src.reporting import telegram as tg
+        with patch.object(tg, "TELEGRAM_BOT_TOKEN", "t"), \
+             patch.object(tg, "TELEGRAM_CHAT_ID", "c"), \
+             patch.object(tg, "requests") as mock_req:
+            mock_req.post.return_value.ok = True
+            # du output can contain characters that break parse_mode=HTML.
+            tg.send_system_alert("path <script> & more")
+        sent = mock_req.post.call_args.kwargs["json"]["text"]
+        assert "&lt;script&gt;" in sent and "&amp;" in sent

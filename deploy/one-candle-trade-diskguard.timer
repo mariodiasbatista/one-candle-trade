@@ -1,10 +1,12 @@
 [Unit]
-Description=Weekly disk guard for One Candle Trade host
+Description=Daily disk guard for One Candle Trade host
 
 [Timer]
-# Sunday 03:00 — outside market hours, so cache pruning never competes with
-# the bot for I/O during a session.
-OnCalendar=Sun *-*-* 03:00:00
+# Daily at 03:00 — outside market hours, so cache pruning never competes with
+# the bot for I/O during a session. Daily rather than weekly because this job
+# also carries the disk alert: on a weekly cadence the disk could pass 85% on
+# a Monday and stay silent until Sunday.
+OnCalendar=*-*-* 03:00:00
 Persistent=true
 RandomizedDelaySec=600
 
