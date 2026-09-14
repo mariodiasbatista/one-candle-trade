@@ -13,7 +13,9 @@ from src.config import (
 )
 from src.models import TradeSignal
 from src.core.risk import calculate_position_size
-from src.db.repository import save_trade_signal, save_skip, close_trade, get_pending_trades
+from src.db.repository import (
+    save_trade_signal, save_skip, close_trade, get_pending_trades, get_trades_for_date,
+)
 from src.reporting.telegram import TelegramReporter
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,27 @@ class Investor:
         """Submit a bracket order to Alpaca. Returns trade_id or None on failure."""
         if signal.symbol in self._open_trades:
             logger.info(f"Agent 3: {signal.symbol} already has an open trade today — skipping duplicate")
+            return None
+
+        # _open_trades is per-process memory, so it cannot see an order placed by
+        # a *second* copy of this bot. That is not hypothetical: a duplicate
+        # main.py ran 2026-05-07 to 07-30 and submitted 39 doubled orders at
+        # identical entry prices. The two processes then raced on exit
+        # management and the extra legs averaged -$32.57 against -$0.42 for the
+        # legitimate ones — about 90% of all losses the strategy has ever taken.
+        # The DB is the only state both processes share, so check it too.
+        already = [t for t in get_trades_for_date(signal.date, signal.symbol)
+                   if t.result != "SKIP"]
+        if already:
+            logger.error(
+                f"Agent 3: DUPLICATE BLOCKED — {signal.symbol} already has a "
+                f"{already[0].result} trade on {signal.date} (id={already[0].id}). "
+                f"Another bot instance may be running; check `ps aux | grep main.py`."
+            )
+            self._telegram.log_error(
+                f"\u26d4 <b>Duplicate order blocked</b> — {signal.symbol} already traded "
+                f"today. Check for a second bot instance."
+            )
             return None
 
         account_value = self.get_account_value()

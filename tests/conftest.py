@@ -27,6 +27,20 @@ def make_flat_candles(n, price=100.0, volume=100_000):
     return [make_candle(price, price + 0.05, price - 0.05, price + 0.01, volume, i) for i in range(n)]
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _schema():
+    """Create the schema once for the whole session.
+
+    Any code path that reads the DB needs the tables to exist, and reads now
+    happen in common paths (execute_signal checks for an existing trade before
+    submitting). Without this, adding a DB read to shared code breaks unrelated
+    tests with "no such table". Creates tables only — it inserts nothing, so
+    tests needing a clean slate still use clean_db.
+    """
+    from src.db.schema import Base, engine
+    Base.metadata.create_all(engine)
+
+
 @pytest.fixture
 def clean_db():
     from src.db.schema import Base, engine

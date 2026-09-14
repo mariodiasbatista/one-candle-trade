@@ -4,7 +4,10 @@ Strategy V3: First 5-min candle ORB + FVG + Volume confirmation
 Paper trading via Alpaca. Guided by SAT - Idea 2 V3 document.
 """
 import asyncio
+import fcntl
 import logging
+import os
+import sys
 import time
 from datetime import datetime
 
@@ -45,6 +48,41 @@ for _noisy in ("httpx", "httpcore", "apscheduler.executors.default",
 
 logger = logging.getLogger(__name__)
 ET = pytz.timezone("America/New_York")
+
+# Path is overridable so tests do not need to write to /run.
+INSTANCE_LOCK_PATH = os.getenv("INSTANCE_LOCK_PATH", "/run/one-candle-trade.lock")
+_instance_lock = None  # module-level: the lock is held only while this stays open
+
+
+def acquire_instance_lock(path: str = None):
+    """Take an exclusive lock so only one bot instance can run.
+
+    A duplicate main.py ran from 2026-05-07 to 07-30 and submitted 39 doubled
+    orders at identical entries; the two processes raced on exit management and
+    those extra legs cost about 90% of every loss the strategy has taken. The
+    existing guards could not catch it: both `_signals_fired` and
+    `_open_trades` are per-process memory, so a second copy starts with a clean
+    slate and happily re-fires everything.
+
+    Returns the held file object on success, or None if another instance has
+    it. The caller must keep the returned object alive — closing it, or letting
+    it be garbage collected, releases the lock.
+    """
+    path = path or INSTANCE_LOCK_PATH
+    try:
+        fh = open(path, "w")
+    except OSError as e:
+        # Never trade unguarded: if the lock cannot be created, fail closed.
+        logger.error(f"Cannot open instance lock {path}: {e}")
+        return None
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    fh.write(str(os.getpid()))
+    fh.flush()
+    return fh
 
 # Initialise components
 telegram = TelegramReporter()
@@ -471,6 +509,18 @@ def build_telegram_app() -> Application:
 
 if __name__ == "__main__":
     logger.info("One Candle Trade V3 — starting up")
+
+    # Must happen before init_db() and before any order can be placed.
+    _instance_lock = acquire_instance_lock()
+    if _instance_lock is None:
+        logger.error(
+            "Another One Candle Trade instance is already running (lock held on "
+            f"{INSTANCE_LOCK_PATH}). Refusing to start — two instances place "
+            "duplicate orders. Check `ps aux | grep main.py`."
+        )
+        sys.exit(1)
+    logger.info(f"Instance lock acquired (pid={os.getpid()})")
+
     init_db()
     logger.info("Database initialised")
     investor.recover_open_trades()
