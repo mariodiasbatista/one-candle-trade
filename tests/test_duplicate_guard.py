@@ -101,3 +101,43 @@ class TestExecuteSignalDuplicateGuard:
             inv.execute_signal(self._signal())
         assert inv._telegram.log_error.call_count == 1, \
             "a blocked duplicate means a second instance may be live — say so"
+
+
+class TestLockFilePidIsPreserved:
+    """A refused instance must not blank the pid of the holder.
+
+    Opening the lock with "w" truncates *before* flock is attempted, so a second
+    instance being correctly refused would still wipe the recorded pid — losing
+    the one diagnostic that identifies the live instance.
+    """
+
+    def _lock_path(self):
+        import os, tempfile
+        fd, path = tempfile.mkstemp(suffix=".lock")
+        os.close(fd)
+        return path
+
+    def test_holder_pid_is_written(self):
+        import main as m, os
+        path = self._lock_path()
+        fh = m.acquire_instance_lock(path)
+        assert m.read_instance_lock_pid(path) == str(os.getpid())
+        fh.close()
+
+    def test_refused_attempt_does_not_wipe_holder_pid(self):
+        import main as m, os
+        path = self._lock_path()
+        fh = m.acquire_instance_lock(path)
+        assert m.acquire_instance_lock(path) is None   # the refused attempt
+        assert m.read_instance_lock_pid(path) == str(os.getpid()), \
+            "a refused instance must leave the holder's pid intact"
+        fh.close()
+
+    def test_stale_pid_is_replaced_on_reacquire(self):
+        import main as m, os
+        path = self._lock_path()
+        with open(path, "w") as f:
+            f.write("999999")            # pid from a previous, dead instance
+        fh = m.acquire_instance_lock(path)
+        assert m.read_instance_lock_pid(path) == str(os.getpid())
+        fh.close()

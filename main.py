@@ -70,7 +70,11 @@ def acquire_instance_lock(path: str = None):
     """
     path = path or INSTANCE_LOCK_PATH
     try:
-        fh = open(path, "w")
+        # "a+" never truncates. Opening "w" would blank the file *before* the
+        # flock attempt, so a refused second instance would wipe the pid of the
+        # instance legitimately holding the lock — destroying the one diagnostic
+        # you want during a duplicate-instance incident.
+        fh = open(path, "a+")
     except OSError as e:
         # Never trade unguarded: if the lock cannot be created, fail closed.
         logger.error(f"Cannot open instance lock {path}: {e}")
@@ -80,9 +84,21 @@ def acquire_instance_lock(path: str = None):
     except OSError:
         fh.close()
         return None
+    # Only now that the lock is ours is it safe to rewrite the contents.
+    fh.seek(0)
+    fh.truncate()
     fh.write(str(os.getpid()))
     fh.flush()
     return fh
+
+
+def read_instance_lock_pid(path: str = None) -> str:
+    """Return the pid recorded in the lock file, or '' if unreadable."""
+    try:
+        with open(path or INSTANCE_LOCK_PATH) as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
 
 # Initialise components
 telegram = TelegramReporter()
@@ -513,10 +529,12 @@ if __name__ == "__main__":
     # Must happen before init_db() and before any order can be placed.
     _instance_lock = acquire_instance_lock()
     if _instance_lock is None:
+        _holder = read_instance_lock_pid()
         logger.error(
-            "Another One Candle Trade instance is already running (lock held on "
-            f"{INSTANCE_LOCK_PATH}). Refusing to start — two instances place "
-            "duplicate orders. Check `ps aux | grep main.py`."
+            "Another One Candle Trade instance is already running"
+            + (f" (pid={_holder})" if _holder else "")
+            + f", lock held on {INSTANCE_LOCK_PATH}. Refusing to start — two "
+            "instances place duplicate orders. Check `ps aux | grep main.py`."
         )
         sys.exit(1)
     logger.info(f"Instance lock acquired (pid={os.getpid()})")
