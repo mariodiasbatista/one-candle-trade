@@ -112,3 +112,42 @@ class TestCalculatePositionSize:
     def test_zero_entry_returns_zero(self):
         size = calculate_position_size(account_value=100_000, entry=0.0, stop_loss=0.0)
         assert size == 0
+
+
+class TestWhichConstraintBinds:
+    """The 1% risk rule is inert for intraday stops.
+
+    It only yields a smaller size than the position cap when the stop is more
+    than entry * RISK_PER_TRADE_PCT / MAX_POSITION_PCT away — 20% of entry at
+    the current 1%/5% settings. Real stops here are ~0.23% of entry, so the cap
+    binds on every trade and real risk is ~0.01% of account, not 1%.
+    """
+
+    def test_realistic_intraday_stop_is_capped_not_risk_sized(self):
+        from src.core.risk import calculate_position_size
+        acct, entry, stop = 97_616.47, 163.85, 163.37   # a real XOM trade
+        size = calculate_position_size(acct, entry, stop)
+        assert size == int(acct * 0.05 / entry), "position cap must bind"
+        risk = size * abs(entry - stop)
+        assert risk < acct * 0.01 * 0.05, \
+            "actual risk should be a tiny fraction of the nominal 1%"
+
+    def test_risk_rule_binds_only_with_an_implausibly_wide_stop(self):
+        from src.core.risk import calculate_position_size
+        acct, entry = 100_000.0, 100.0
+        # Stop 25% away — beyond the 20% crossover, so the risk rule wins.
+        size = calculate_position_size(acct, entry, 75.0)
+        assert size == int(acct * 0.01 / 25.0)
+        assert size < int(acct * 0.05 / entry)
+
+    def test_risk_varies_wildly_across_trades_at_fixed_notional(self):
+        from src.core.risk import calculate_position_size
+        acct = 97_616.47
+        tight = calculate_position_size(acct, 172.37, 172.23) * 0.14   # QCOM
+        wide = calculate_position_size(acct, 523.65, 520.35) * 3.30    # AMD
+        # Same notional exposure, very different dollars at risk.
+        assert wide > tight * 3, "fixed-notional sizing leaves risk uncontrolled"
+
+    def test_minimum_one_share(self):
+        from src.core.risk import calculate_position_size
+        assert calculate_position_size(1_000.0, 5_000.0, 4_999.0) == 1
