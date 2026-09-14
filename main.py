@@ -12,6 +12,7 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Update
+from telegram import error as telegram_error
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.request import HTTPXRequest
 
@@ -32,6 +33,16 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+# Third-party loggers are muted to WARNING. At INFO, httpx logs one line per
+# Telegram getUpdates poll (every ~10s, ~8.6k lines/day) and that line embeds
+# the bot token in the URL. apscheduler logs every job start/finish. Together
+# they were ~97% of log volume and filled the disk. Our own src.* and __main__
+# loggers stay at INFO.
+for _noisy in ("httpx", "httpcore", "apscheduler.executors.default",
+               "telegram.ext.Application", "telegram.ext.Updater"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 ET = pytz.timezone("America/New_York")
 
@@ -423,6 +434,25 @@ async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
+async def on_telegram_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log Telegram errors as one line instead of a full traceback.
+
+    Without a registered error handler, python-telegram-bot dumps ~28 traceback
+    lines per failure. A duplicate bot instance polling the same token produced
+    79k telegram.error.Conflict errors (~2.2M lines) before it was found. These
+    errors are transient and self-recovering, so a single line is enough; a
+    Conflict specifically means a second instance is running.
+    """
+    err = context.error
+    if isinstance(err, telegram_error.Conflict):
+        logger.error(
+            "Telegram Conflict: another bot instance is polling the same token "
+            "— check `ps aux | grep main.py` for a duplicate process"
+        )
+    else:
+        logger.warning(f"Telegram transient error: {type(err).__name__}: {err}")
+
+
 def build_telegram_app() -> Application:
     request = HTTPXRequest(connect_timeout=30, read_timeout=30)
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request).build()
@@ -431,6 +461,7 @@ def build_telegram_app() -> Application:
     app.add_handler(CommandHandler("summary", cmd_summary))
     app.add_handler(CommandHandler("loglevel", cmd_loglevel))
     app.add_handler(CommandHandler("setlevel", cmd_setlevel))
+    app.add_error_handler(on_telegram_error)
     return app
 
 
