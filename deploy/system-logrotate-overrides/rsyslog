@@ -1,0 +1,29 @@
+/var/log/syslog
+/var/log/mail.log
+/var/log/kern.log
+/var/log/auth.log
+/var/log/user.log
+/var/log/cron.log
+{
+	rotate 4
+	weekly
+	# Added 2026-09-14. Weekly rotation alone let syslog reach 63M in days:
+	# when the disk filled, rsyslog logged 213k 'cannot write to syslog'
+	# errors *into syslog*, a feedback loop that accelerates the fill.
+	# logrotate.timer runs daily, so maxsize is evaluated daily.
+	maxsize 100M
+	missingok
+	notifempty
+	compress
+	delaycompress
+	# Added 2026-09-14. /var/log is root:syslog 0755, so the syslog user
+	# cannot create a file there — after a rotation rsyslog could not
+	# recreate syslog/auth.log and its omfile action stayed suspended,
+	# silently losing all syslog and SSH auth logging. logrotate runs as
+	# root, so it creates the replacement itself and rsyslog only appends.
+	create 0640 syslog adm
+	sharedscripts
+	postrotate
+		/usr/lib/rsyslog/rsyslog-rotate
+	endscript
+}

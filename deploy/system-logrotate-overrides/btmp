@@ -1,0 +1,14 @@
+# no packages own btmp -- we'll rotate it here
+/var/log/btmp {
+    missingok
+    monthly
+    # Added 2026-09-14. btmp records failed logins and had grown large
+    # with no size cap and no compression; monthly rotation alone let it
+    # run unbounded between rotations.
+    maxsize 20M
+    compress
+    # delaycompress keeps btmp.1 readable by lastb for investigation.
+    delaycompress
+    create 0660 root utmp
+    rotate 2
+}
