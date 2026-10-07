@@ -13,7 +13,11 @@
 
 /var/projects/one-candle-trade/logs/main.log {
     daily
-    rotate 14
+    # 180 days, not 14. Investigating a Telegram alert on 2026-10-07 needed the
+    # 09-15..09-23 window and it had already aged out at 14 rotations. With the
+    # third-party log noise silenced a day now compresses to ~3.5 KB, so six
+    # months of history costs well under a megabyte. maxsize still caps a burst.
+    rotate 180
     maxsize 50M
     copytruncate
     compress
