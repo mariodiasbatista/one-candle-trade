@@ -122,7 +122,10 @@ class TestTelegramErrorHandler:
 
     def test_handler_is_registered_on_the_application(self):
         import main as m
-        app = m.build_telegram_app()
+        # conftest blanks the real token so the suite cannot page the bot owner;
+        # PTB will not build an Application with an empty one, so supply a dummy.
+        with patch.object(m, "TELEGRAM_BOT_TOKEN", "123456:dummy-token-for-tests"):
+            app = m.build_telegram_app()
         assert m.on_telegram_error in app.error_handlers, \
             "error handler must be registered or PTB logs full tracebacks"
 

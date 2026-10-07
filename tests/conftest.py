@@ -6,6 +6,26 @@ _db_fd, _db_path = tempfile.mkstemp(suffix=".db")
 os.close(_db_fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"
 
+# Blank the Telegram credentials before src.config is imported, so the whole
+# suite is structurally incapable of sending a real message.
+#
+# This is not belt-and-braces. main.py builds a module-level
+# `telegram = TelegramReporter()`, and the job functions call it directly — so
+# any test that exercises a job without patching `main.telegram` sends a real
+# alert to the live chat. test_main_jobs.py did exactly that: it patched
+# main.logger but not main.telegram, so every suite run fired
+# "Force Close failed: API error" at the real bot owner, from the
+# Exception("API error") fixture.
+#
+# Patching each test is the fragile fix — the next job test forgets again.
+# src.config reads these with os.getenv(..., ""), and load_dotenv() does not
+# override values already in os.environ, so setting them empty here makes
+# telegram._send() and send_system_alert() return before any network call.
+# Tests that need a configured reporter patch the module attributes directly
+# (see test_telegram.py), which still works.
+os.environ["TELEGRAM_BOT_TOKEN"] = ""
+os.environ["TELEGRAM_CHAT_ID"] = ""
+
 import pytest
 from datetime import datetime, timedelta
 import pytz

@@ -163,3 +163,43 @@ class TestJobForceClose:
             m.job_force_close()  # must not raise
 
         mock_logger.error.assert_called_once()
+
+
+class TestJobsNeverSendRealTelegram:
+    """The job functions call main.py's module-level `telegram` reporter directly.
+
+    TestJobForceClose.test_exception_is_caught_and_logged patches main.logger but
+    not main.telegram, so before conftest blanked the credentials every suite run
+    delivered a real "Force Close failed: API error" alert to the live chat — the
+    Exception("API error") fixture reaching a real reporter. These tests pin the
+    guard so a future job test that forgets to patch cannot reach the network.
+    """
+
+    def test_credentials_are_blank_in_the_test_environment(self):
+        from src.reporting import telegram as tg
+        assert tg.TELEGRAM_BOT_TOKEN == "", "a real token in tests can page the owner"
+        assert tg.TELEGRAM_CHAT_ID == ""
+
+    def test_force_close_failure_reaches_no_network_call(self):
+        from src.reporting import telegram as tg
+        m.investor._open_trades = {"SPY": {}}
+        with patch.object(tg, "requests") as mock_req, \
+             patch.object(m.investor, "force_close_all", side_effect=Exception("API error")), \
+             patch("main.logger"):
+            m.job_force_close()
+        assert mock_req.post.call_count == 0, \
+            "job_force_close must not post to Telegram during tests"
+
+    def test_force_close_success_path_also_sends_nothing(self):
+        from src.reporting import telegram as tg
+        m.investor._open_trades = {"SPY": {}}
+        with patch.object(tg, "requests") as mock_req, \
+             patch.object(m.investor, "force_close_all"):
+            m.job_force_close()
+        assert mock_req.post.call_count == 0
+
+    def test_system_alert_is_also_inert_in_tests(self):
+        from src.reporting import telegram as tg
+        with patch.object(tg, "requests") as mock_req:
+            assert tg.send_system_alert("disk nearly full") is False
+        assert mock_req.post.call_count == 0
