@@ -63,6 +63,15 @@ class Analyst:
             volume_ratio=ctx.volume_ratio,
             filters_passed=filters_passed,
             confidence="HIGH",
+            # Carried through for analysis only. These are already computed for
+            # every signal; before 2026-10-07 they were discarded, which left
+            # nothing to test but the two filters that turned out to be null.
+            premarket_gap_pct=ctx.premarket_gap_pct,
+            atr_14_daily=ctx.atr_14_daily,
+            candle_range=ctx.candle_range,
+            key_high=ctx.key_high,
+            key_low=ctx.key_low,
+            fvg_gap_size=fvg.gap_size,
         )
 
         logger.info(

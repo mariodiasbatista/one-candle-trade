@@ -28,6 +28,13 @@ def save_trade_signal(signal: TradeSignal, qty: int, alpaca_order_id: str) -> st
             filters_passed=signal.filters_passed,
             alpaca_order_id=alpaca_order_id,
             result="PENDING",
+            # Signal-time context — recorded for analysis, never read back.
+            premarket_gap_pct=signal.premarket_gap_pct,
+            atr_14_daily=signal.atr_14_daily,
+            candle_range=signal.candle_range,
+            key_high=signal.key_high,
+            key_low=signal.key_low,
+            fvg_gap_size=signal.fvg_gap_size,
         )
         session.add(trade)
         session.commit()

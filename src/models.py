@@ -65,6 +65,19 @@ class TradeSignal:
     filters_passed: list = field(default_factory=list)
     confidence: str = "HIGH"
 
+    # Signal-time context, recorded for later analysis only — nothing reads these
+    # back to make a decision. As of 2026-10-07 the only two features ever stored
+    # were fvg_body_ratio and volume_ratio, and both test null against chance
+    # (p=0.60 and p=0.90), so there was nothing else left to examine. These are
+    # computed on every signal already and were being discarded. Stored raw
+    # rather than pre-derived, so later work can form its own ratios.
+    premarket_gap_pct: float = 0.0
+    atr_14_daily: float = 0.0
+    candle_range: float = 0.0
+    key_high: float = 0.0
+    key_low: float = 0.0
+    fvg_gap_size: float = 0.0
+
 
 @dataclass
 class TradeResult:
